@@ -1,8 +1,6 @@
-## Backend
-src/backend: Go (serves recipe.json & SVGs)
-
-## Frontend
-src/frontend: Next.js
+## BE & FE
+`src/backend`: Go (serves recipe.json & SVGs)
+`src/frontend`: Next.js
 
 ## Prereq
 - Go ≥ 1.18
@@ -17,6 +15,7 @@ src/frontend: Next.js
     go mod tidy
     go run .
     ```
+3. `go run .` will scrape Little Alchemy 2 website and generate local `src/backend/svgs/{Tier}/{Element}.svg` and `src/backend/json/recipe.json`
 
 ## Frontend Setup
 1. Open second terminal

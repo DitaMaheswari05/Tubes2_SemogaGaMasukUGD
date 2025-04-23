@@ -4,6 +4,7 @@ src/frontend/.next/
 
 # SVGs
 src/backend/svgs
+src/backend/json
 
 # Logs
 *.log

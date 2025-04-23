@@ -1,14 +1,21 @@
 // pages/index.js
 import { useEffect, useState } from "react";
 
+const cell = {
+  border: "1px solid #ccc",
+  padding: "0.5em",
+};
+
 export default function Home() {
   const [data, setData] = useState(null);
+
   useEffect(() => {
     fetch("http://localhost:8080/api/recipes")
       .then((r) => r.json())
       .then(setData)
       .catch(console.error);
   }, []);
+
   if (!data) return <p>Loading…</p>;
 
   // build name→svg map
@@ -19,10 +26,40 @@ export default function Home() {
       if (el.local_svg_path) nameMap[el.name] = el.local_svg_path;
     });
 
+  // order
+  const sectionOrder = [
+    "Special element",
+    "Starting elements",
+    "Tier 1 elements",
+    "Tier 2 elements",
+    "Tier 3 elements",
+    "Tier 4 elements",
+    "Tier 5 elements",
+    "Tier 6 elements",
+    "Tier 7 elements",
+    "Tier 8 elements",
+    "Tier 9 elements",
+    "Tier 10 elements",
+    "Tier 11 elements",
+    "Tier 12 elements",
+    "Tier 13 elements",
+    "Tier 14 elements",
+    "Tier 15 elements",
+  ];
+
+  // sort Object.entries(data) using the custom order
+  const sortedSections = Object.entries(data).sort(([a], [b]) => {
+    const idxA = sectionOrder.indexOf(a);
+    const idxB = sectionOrder.indexOf(b);
+    const safeA = idxA === -1 ? 999 : idxA;
+    const safeB = idxB === -1 ? 999 : idxB;
+    return safeA - safeB;
+  });
+
   return (
-    <div style={{ padding: 20, fontFamily: "Arial,sans-serif" }}>
+    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
       <h1 style={{ textAlign: "center" }}>Little Alchemy Elements</h1>
-      {Object.entries(data).map(([section, elems]) => (
+      {sortedSections.map(([section, elems]) => (
         <section key={section}>
           <h2
             style={{
@@ -37,11 +74,12 @@ export default function Home() {
               width: "100%",
               borderCollapse: "separate",
               borderSpacing: "0 1em",
+              tableLayout: "fixed",
             }}>
             <thead>
               <tr>
-                <th style={cell}>Element</th>
-                <th style={{ ...cell, whiteSpace: "nowrap" }}>Recipes</th>
+                <th style={{ ...cell, width: "280px" }}>Element</th>
+                <th style={{ ...cell }}>Recipes</th>
               </tr>
             </thead>
             <tbody>
@@ -51,7 +89,7 @@ export default function Home() {
                     <div style={{ display: "flex", alignItems: "center" }}>
                       {el.local_svg_path && (
                         <img
-                          src={`http://localhost:8080/svgs/${el.local_svg_path}`}
+                          src={"http://localhost:8080/svgs/" + el.local_svg_path}
                           alt={el.name}
                           width={40}
                           height={40}
@@ -68,7 +106,7 @@ export default function Home() {
                           <span key={j}>
                             {nameMap[name] && (
                               <img
-                                src={`http://localhost:8080/svgs/${nameMap[name]}`}
+                                src={"http://localhost:8080/svgs/" + nameMap[name]}
                                 alt={name}
                                 width={24}
                                 height={24}
@@ -91,8 +129,3 @@ export default function Home() {
     </div>
   );
 }
-
-const cell = {
-  border: "1px solid #ccc",
-  padding: "0.5em",
-};
