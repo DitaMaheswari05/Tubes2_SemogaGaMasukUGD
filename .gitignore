@@ -1,0 +1,13 @@
+# Node/Next
+src/frontend/node_modules/
+src/frontend/.next/
+
+# SVGs
+src/backend/svgs
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
