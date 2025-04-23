@@ -22,6 +22,7 @@
 2. Run
     ```
     cd src/frontend
+    npm install
     npm run dev
     ```
 3. Open http://localhost:3000/ in browser
