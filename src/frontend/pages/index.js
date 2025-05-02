@@ -1,131 +1,69 @@
 // pages/index.js
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-const cell = {
-  border: "1px solid #ccc",
-  padding: "0.5em",
-};
+export default function FinderPage() {
+  const [query, setQuery] = useState("");
+  const [json, setJson] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-export default function Home() {
-  const [data, setData] = useState(null);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!query.trim()) return;
 
-  useEffect(() => {
-    fetch("http://localhost:8080/api/recipes")
-      .then((r) => r.json())
-      .then(setData)
-      .catch(console.error);
-  }, []);
+    setLoading(true);
+    setError(null);
+    setJson(null);
 
-  if (!data) return <p>Loading…</p>;
-
-  // build name→svg map
-  const nameMap = {};
-  Object.values(data)
-    .flat()
-    .forEach((el) => {
-      if (el.local_svg_path) nameMap[el.name] = el.local_svg_path;
-    });
-
-  // order
-  const sectionOrder = [
-    "Special element",
-    "Starting elements",
-    "Tier 1 elements",
-    "Tier 2 elements",
-    "Tier 3 elements",
-    "Tier 4 elements",
-    "Tier 5 elements",
-    "Tier 6 elements",
-    "Tier 7 elements",
-    "Tier 8 elements",
-    "Tier 9 elements",
-    "Tier 10 elements",
-    "Tier 11 elements",
-    "Tier 12 elements",
-    "Tier 13 elements",
-    "Tier 14 elements",
-    "Tier 15 elements",
-  ];
-
-  // sort Object.entries(data) using the custom order
-  const sortedSections = Object.entries(data).sort(([a], [b]) => {
-    const idxA = sectionOrder.indexOf(a);
-    const idxB = sectionOrder.indexOf(b);
-    const safeA = idxA === -1 ? 999 : idxA;
-    const safeB = idxB === -1 ? 999 : idxB;
-    return safeA - safeB;
-  });
+    try {
+      // 👉 talk to your Go backend
+      const res = await fetch(`/api/find?target=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setJson(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
-      <h1 style={{ textAlign: "center" }}>Little Alchemy Elements</h1>
-      {sortedSections.map(([section, elems]) => (
-        <section key={section}>
-          <h2
+    <main style={{ padding: 20, fontFamily: "sans-serif" }}>
+      <h1>Little Alchemy 2 – Recipe Finder</h1>
+
+      <form onSubmit={handleSubmit} style={{ marginBottom: 16 }}>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Enter element name…"
+          style={{ padding: 8, fontSize: 16, width: 200 }}
+        />
+        <button type="submit" style={{ marginLeft: 8, padding: "8px 12px", fontSize: 16 }}>
+          Find
+        </button>
+      </form>
+
+      {loading && <p>Loading…</p>}
+      {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
+
+      {json && (
+        <>
+          <h2>Raw JSON Response</h2>
+          <pre
             style={{
-              marginTop: "2em",
-              borderBottom: "1px solid #666",
-              paddingBottom: "0.2em",
+              background: "#f0f0f0",
+              padding: 16,
+              overflowX: "auto",
+              maxHeight: "60vh",
             }}>
-            {section}
-          </h2>
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "separate",
-              borderSpacing: "0 1em",
-              tableLayout: "fixed",
-            }}>
-            <thead>
-              <tr>
-                <th style={{ ...cell, width: "280px" }}>Element</th>
-                <th style={{ ...cell }}>Recipes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {elems.map((el) => (
-                <tr key={el.name}>
-                  <td style={cell}>
-                    <div style={{ display: "flex", alignItems: "center" }}>
-                      {el.local_svg_path && (
-                        <img
-                          src={"http://localhost:8080/svgs/" + el.local_svg_path}
-                          alt={el.name}
-                          width={40}
-                          height={40}
-                          style={{ marginRight: 10 }}
-                        />
-                      )}
-                      {el.name}
-                    </div>
-                  </td>
-                  <td style={{ ...cell, whiteSpace: "nowrap" }}>
-                    {el.recipes.map((pair, i) => (
-                      <div key={i} style={{ marginBottom: 4 }}>
-                        {pair.map((name, j) => (
-                          <span key={j}>
-                            {nameMap[name] && (
-                              <img
-                                src={"http://localhost:8080/svgs/" + nameMap[name]}
-                                alt={name}
-                                width={24}
-                                height={24}
-                                style={{ marginRight: 4 }}
-                              />
-                            )}
-                            {name}
-                            {j === 0 ? " + " : ""}
-                          </span>
-                        ))}
-                      </div>
-                    ))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ))}
-    </div>
+            {JSON.stringify(json, null, 2)}
+          </pre>
+        </>
+      )}
+
+      {!loading && !json && !error && <p>Type something above and press “Find” to see the raw recipe JSON.</p>}
+    </main>
   );
 }

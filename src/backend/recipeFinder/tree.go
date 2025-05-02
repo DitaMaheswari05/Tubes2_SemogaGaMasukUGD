@@ -1,0 +1,37 @@
+package recipeFinder
+
+// RecipeNode itu bentuk data JSON yang nanti kita kirim ke frontend.
+// - Name: nama elemen (misal "Brick")
+// - Children: daftar subtree resep bahan-bahannya.
+//   kalau leaf (elemen dasar), Children bisa kosong atau nil.
+type RecipeNode struct {
+    Name     string        `json:"name"`
+    Children []*RecipeNode `json:"children,omitempty"`
+}
+
+// BuildTree bangun pohon resep mulai dari `name` (target akhir),
+// pakai peta prev hasil BFSBuild yang isinya: 
+//   product → Info{Parent, Partner} 
+// artinya product itu pertama kali dibuat dari Parent+Partner.
+// Ini rekursif:  
+// 1) bikin node buat elemen `name`.
+// 2) kalau ada prev[name], berarti dia bukan base,  
+//    turun (recursively) buat Parent dan Partner.
+// 3) gabung hasilnya jadi Children dua buah subtree.
+func BuildTree(name string, prev map[string]Info) *RecipeNode {
+    // bikin node untuk elemen sekarang
+    node := &RecipeNode{Name: name}
+
+    // cek: apakah elemen ini pernah dicatat di prev?
+    // kalau iya, berarti dia dibuat dari kombinasi dua bahan
+    if info, ok := prev[name]; ok {
+        // info.Parent + info.Partner → name
+        // jadi anak-anaknya adalah subtree Parent dan Partner
+        node.Children = []*RecipeNode{
+            BuildTree(info.Parent, prev),
+            BuildTree(info.Partner, prev),
+        }
+    }
+    // return subtree ini
+    return node
+}
