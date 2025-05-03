@@ -86,7 +86,7 @@ func main() {
 			http.Error(w, "missing ?target=", http.StatusBadRequest)
 			return
 		}
-		prev := recipeFinder.DFSBuild(target, byPair) // prev map: node ← parent-nya
+		prev := recipeFinder.BFSBuild(target, byPair) // prev map: node ← parent-nya
 		tree := recipeFinder.BuildTree(target, prev)  // bangun struktur pohon recipe
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(tree) // kirim JSON ke client
