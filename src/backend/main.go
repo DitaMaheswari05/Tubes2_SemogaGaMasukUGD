@@ -49,19 +49,18 @@ func main() {
 	}
 
 	// 3) “Unmarshal” JSON → struct Go kita
-    //
-    //    rawJSON adalah byte slice berisi konten file recipe.json,  
-    //    misalnya '[{"Tier 1 elements":[{"name":"Mud","recipes":[...]}], ...}]'
-    //
-    //    json.Unmarshal artinya: ambil data JSON mentah (rawJSON)  
-    //    lalu konversi ke tipe Go yang kita tentukan (di sini map[string][]Element).  
-    //    Hasilnya disimpan di variabel “sections”.
-    var sections map[string][]recipeFinder.Element
-    if err := json.Unmarshal(rawJSON, &sections); err != nil {
-        // Kalau error, kita fatal: artinya data JSON-nya tidak valid / berbeda dengan definisi struct Element
-        log.Fatalf("invalid JSON: %v", err)
-    }
-
+	//
+	//    rawJSON adalah byte slice berisi konten file recipe.json,
+	//    misalnya '[{"Tier 1 elements":[{"name":"Mud","recipes":[...]}], ...}]'
+	//
+	//    json.Unmarshal artinya: ambil data JSON mentah (rawJSON)
+	//    lalu konversi ke tipe Go yang kita tentukan (di sini map[string][]Element).
+	//    Hasilnya disimpan di variabel “sections”.
+	var sections map[string][]recipeFinder.Element
+	if err := json.Unmarshal(rawJSON, &sections); err != nil {
+		// Kalau error, kita fatal: artinya data JSON-nya tidak valid / berbeda dengan definisi struct Element
+		log.Fatalf("invalid JSON: %v", err)
+	}
 
 	// 4) Bangun index byPair: untuk tiap pasangan (A,B) daftar produk yang bisa dibuat
 	byPair := recipeFinder.MakeByPair(sections)
@@ -87,8 +86,8 @@ func main() {
 			http.Error(w, "missing ?target=", http.StatusBadRequest)
 			return
 		}
-		prev := recipeFinder.BFSBuild(target, byPair)  // prev map: node ← parent-nya
-		tree := recipeFinder.BuildTree(target, prev)   // bangun struktur pohon recipe
+		prev := recipeFinder.DFSBuild(target, byPair) // prev map: node ← parent-nya
+		tree := recipeFinder.BuildTree(target, prev)  // bangun struktur pohon recipe
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(tree) // kirim JSON ke client
 	})
