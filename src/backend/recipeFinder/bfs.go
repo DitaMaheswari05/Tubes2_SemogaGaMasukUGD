@@ -6,6 +6,7 @@ package recipeFinder
 // Partner = bahan lain (dari set seen) yang kita gabungkan bersama Parent untuk bikin produk itu.
 type Info struct {
 	Parent, Partner string
+	Path            [][]string
 }
 
 // Starting elements

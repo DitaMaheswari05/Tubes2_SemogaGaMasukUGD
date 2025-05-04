@@ -86,10 +86,12 @@ func main() {
 			http.Error(w, "missing ?target=", http.StatusBadRequest)
 			return
 		}
-		prev := recipeFinder.BFSBuild(target, byPair) // prev map: node ← parent-nya
-		tree := recipeFinder.BuildTree(target, prev)  // bangun struktur pohon recipe
+
+		var maxPaths int = 4
+		pathPrev := recipeFinder.BFSBuildMulti(target, byPair, maxPaths) // prev map: node ← parent-nya
+		trees := recipeFinder.BuildTrees(target, pathPrev)               // bangun struktur pohon recipe
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tree) // kirim JSON ke client
+		json.NewEncoder(w).Encode(trees) // kirim JSON ke client
 	})
 
 	log.Printf("listening on %s…", *addr)
