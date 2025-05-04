@@ -22,6 +22,10 @@ func BuildTree(name string, prev map[string]Info) *RecipeNode {
 	// bikin node untuk elemen sekarang
 	node := &RecipeNode{Name: name}
 
+	if isBaseElement(name) {
+		return node
+	}
+
 	// cek: apakah elemen ini pernah dicatat di prev?
 	// kalau iya, berarti dia dibuat dari kombinasi dua bahan
 	if info, ok := prev[name]; ok {
@@ -40,6 +44,7 @@ func BuildTrees(target string, pathPrev map[string][]Info) []*RecipeNode {
 	var trees []*RecipeNode
 
 	for _, info := range pathPrev[target] {
+		// Use only the steps from this specific path to build prev
 		prev := make(map[string]Info)
 		for _, step := range info.Path {
 			if len(step) == 3 {
@@ -51,5 +56,15 @@ func BuildTrees(target string, pathPrev map[string][]Info) []*RecipeNode {
 		tree := BuildTree(target, prev)
 		trees = append(trees, tree)
 	}
+
 	return trees
+}
+
+func isBaseElement(name string) bool {
+	for _, b := range baseElements {
+		if b == name {
+			return true
+		}
+	}
+	return false
 }
