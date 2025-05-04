@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 )
 
 func BFSBuild2(target string, byPair map[Pair][]string) map[string]Info {
@@ -46,14 +47,17 @@ func BFSBuild2(target string, byPair map[Pair][]string) map[string]Info {
 	return prev
 }
 
-func BFSBuildMulti(target string, byPair map[Pair][]string, maxPaths int) map[string][]Info {
+func BFSBuildMulti(target string, byPair map[Pair][]string, maxPaths int64) map[string][]Info {
 	graph := BuildGraph(byPair)
 
-	resultChan := make(chan Info, 10)
+	resultChan := make(chan Info, 1000)
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var pathCount int
+	var mu sync.RWMutex
+	var pathCount int64
 	seenElements := make(map[string]bool)
+	seenCombinations := make(map[string]bool) // Tracks unique (parent, partner) pairs for the target
+
+	// Initialize seenElements with base elements
 	for _, base := range baseElements {
 		seenElements[base] = true
 	}
@@ -62,86 +66,77 @@ func BFSBuildMulti(target string, byPair map[Pair][]string, maxPaths int) map[st
 		defer wg.Done()
 
 		queue := list.New()
-		queue.PushBack([][]string{{start}})
-
-		seenPaths := make(map[string]bool)
-		seenPaths[start] = true
-		pathPrev := make(map[string][]Info)
+		queue.PushBack(start)
 
 		for queue.Len() > 0 {
-			mu.Lock()
+			mu.RLock()
 			if pathCount >= maxPaths && maxPaths > 0 {
-				mu.Unlock()
+				mu.RUnlock()
 				break
 			}
-			mu.Unlock()
+			mu.RUnlock()
 
-			currentSteps := queue.Remove(queue.Front()).([][]string)
-			var cur string
-			if len(currentSteps) > 0 {
-				cur = currentSteps[len(currentSteps)-1][2]
-			} else {
-				cur = start
-			}
+			currentElement := queue.Remove(queue.Front()).(string)
 
-			neighbors := graph[cur]
+			neighbors := graph[currentElement]
 			for _, neighbor := range neighbors {
 				partner := neighbor.Partner
 				prod := neighbor.Product
 
-				mu.Lock()
+				mu.RLock()
 				seenPartner := seenElements[partner]
-				mu.Unlock()
+				mu.RUnlock()
 
 				if seenPartner {
-					newStep := []string{cur, partner, prod}
-					sort.Strings(newStep)
-					newSteps := append(append([][]string{}, currentSteps...), newStep)
+					if prod == target {
+						// Normalize the pair to handle commutativity
+						pair := []string{currentElement, partner}
+						sort.Strings(pair)
+						combinationKey := fmt.Sprintf("%s,%s", pair[0], pair[1]) // Target is fixed, so omitted
 
-					pathKey := fmt.Sprintf("%v", newSteps)
+						mu.Lock()
+						if !seenCombinations[combinationKey] {
+							seenCombinations[combinationKey] = true
+							mu.Unlock()
 
-					if !seenPaths[pathKey] {
-						seenPaths[pathKey] = true
+							// Create Info with normalized Parent/Partner and Path (pair1, pair2, product)
+							parent, partner := pair[0], pair[1]
+							path := [][]string{{parent, partner, target}}
+							info := Info{Parent: parent, Partner: partner, Path: path}
+
+							newCount := atomic.AddInt64(&pathCount, 1)
+							if maxPaths <= 0 || newCount <= maxPaths {
+								fmt.Printf("Found path for %s: %v\n", target, path)
+								resultChan <- info
+							}
+						} else {
+							mu.Unlock()
+						}
+					} else if !seenElements[prod] {
+						// Continue exploration by enqueuing unseen products (except target)
 						mu.Lock()
 						seenElements[prod] = true
 						mu.Unlock()
-						pathPrev[prod] = append(pathPrev[prod], Info{Parent: cur, Partner: partner, Path: newSteps})
-
-						queue.PushBack(newSteps)
-						if prod == target {
-							mu.Lock()
-							if pathCount < maxPaths || maxPaths <= 0 {
-								pathCount++
-								fmt.Printf("Found path for %s: %v\n", target, newSteps)
-							}
-							mu.Unlock()
-						}
+						queue.PushBack(prod)
 					}
 				}
 			}
 		}
-
-		if infos, ok := pathPrev[target]; ok {
-			for _, info := range infos {
-				mu.Lock()
-				if pathCount < maxPaths || maxPaths <= 0 {
-					resultChan <- info
-				}
-				mu.Unlock()
-			}
-		}
 	}
 
+	// Start a worker for each base element
 	for _, start := range baseElements {
 		wg.Add(1)
 		go bfsWorker(start)
 	}
 
+	// Close resultChan when all workers are done
 	go func() {
 		wg.Wait()
 		close(resultChan)
 	}()
 
+	// Collect results
 	resultMap := make(map[string][]Info)
 	for result := range resultChan {
 		resultMap[target] = append(resultMap[target], result)

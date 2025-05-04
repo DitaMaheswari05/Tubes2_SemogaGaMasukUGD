@@ -87,11 +87,21 @@ func main() {
 			return
 		}
 
-		var maxPaths int = 4
-		pathPrev := recipeFinder.BFSBuildMulti(target, byPair, maxPaths) // prev map: node ← parent-nya
-		trees := recipeFinder.BuildTrees(target, pathPrev)               // bangun struktur pohon recipe
+		var maxPaths int64 = 4
+		multi := true
+
+		var trees interface{} // Adjust type based on actual return type of BuildTrees
+
+		if multi {
+			pathPrev := recipeFinder.BFSBuildMulti(target, byPair, maxPaths)
+			trees = recipeFinder.BuildTrees(target, pathPrev)
+		} else {
+			prev := recipeFinder.BFSBuild2(target, byPair)
+			trees = recipeFinder.BuildTree(target, prev)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(trees) // kirim JSON ke client
+		json.NewEncoder(w).Encode(trees)
 	})
 
 	log.Printf("listening on %s…", *addr)
