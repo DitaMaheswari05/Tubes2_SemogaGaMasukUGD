@@ -87,7 +87,7 @@ func main() {
 			return
 		}
 
-		var maxPaths int64 = 4
+		var maxPaths int64 = 20
 		multi := true
 
 		var trees interface{} // Adjust type based on actual return type of BuildTrees
