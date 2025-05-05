@@ -17,7 +17,7 @@ var baseElements = []string{"Air", "Earth", "Fire", "Water"}
 // membangun kembali urutan resepnya nanti.
 
 func BFSBuild(target string, byPair map[Pair][]string) map[string]Info {
-    // 1) Siapkan antrean (queue) awal berisi elemen dasar
+    // 1) Siapkan queue awal berisi elemen dasar
     queue := make([]string, len(baseElements))
     copy(queue, baseElements)
 
@@ -41,7 +41,7 @@ func BFSBuild(target string, byPair map[Pair][]string) map[string]Info {
         }
 
         // 5) Untuk setiap bahan “partner” yang sudah pernah dilihat (seen),
-        //    coba gabungkan cur + partner, lihat byPair[pair] → daftar produk.
+        //    coba gabungkan cur + partner, dengan mengakses byPair[pair] -> produk.
         for partner := range seen {
             // Pair{A: cur, B: partner} lookup produk apa saja
             for _, prod := range byPair[Pair{A: cur, B: partner}] {

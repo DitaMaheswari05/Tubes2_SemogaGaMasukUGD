@@ -71,7 +71,7 @@ func ScrapeAll() (map[string][]Element, error) {
             if href != "" {
                 fname := strings.ReplaceAll(name, " ", "_") + ".svg"
                 localPath = filepath.Join(strings.ReplaceAll(title, " ", "_"), fname)
-                downloadSVG(href, filepath.Join(dir, fname))
+                // downloadSVG(href, filepath.Join(dir, fname))
             }
 
             recipes := [][]string{}
