@@ -19,6 +19,7 @@ const (
 )
 
 var (
+	recipeGraph recipeFinder.Graph
     doScrape = flag.Bool("scrape", false, "rebuild recipe.json by scraping") // kalau -scrape=true, jalankan scraping dulu
     addr     = flag.String("addr", ":8080", "listen address")                // alamat HTTP server
 )
@@ -65,7 +66,9 @@ func main() {
     }
 
     // 4) Bangun index byPair: untuk tiap pasangan (A,B) daftar produk yang bisa dibuat
-    combinationMap := recipeFinder.BuildCombinationMap(catalog)
+    // combinationMap := recipeFinder.BuildCombinationMap(catalog)
+	// recipeGraph = recipeFinder.BuildGraphFromCatalog(catalog)
+	indexedGraph := recipeFinder.BuildIndexedGraph(catalog)
 
     // 5) Endpoint /api/recipes: langsung dump rawJSON-nya (UNTUK SEKARANG)
     http.HandleFunc("/api/recipes", func(w http.ResponseWriter, r *http.Request) {
@@ -121,10 +124,10 @@ func main() {
         var trees interface{} // Adjust type based on actual return type of BuildTrees
 
         if multi {
-            pathPrev := recipeFinder.BFSBuildMulti(target, combinationMap, maxPaths)
+            pathPrev := recipeFinder.BFSBuildMulti(target, recipeGraph, maxPaths)
             trees = recipeFinder.BuildTrees(target, pathPrev)
         } else {
-            prev := recipeFinder.BFSBuild2(target, combinationMap)
+            prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
             trees = recipeFinder.BuildTree(target, prev)
         }
 

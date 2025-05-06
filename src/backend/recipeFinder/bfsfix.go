@@ -8,48 +8,97 @@ import (
 	"sync/atomic"
 )
 
-func BFSBuild2(target string, combinationMap CombinationMap) map[string]Info {
-	graph := BuildGraph(combinationMap)
-
-	queue := list.New()
-	for _, base := range baseElements {
-		queue.PushBack(base)
-	}
-
-	seen := make(map[string]bool)
-	for _, base := range baseElements {
-		seen[base] = true
-	}
-
-	prev := make(map[string]Info)
-
-	for queue.Len() > 0 {
-		cur := queue.Remove(queue.Front()).(string)
-
-		if cur == target {
-			return prev
-		}
-
-		neighbors := graph[cur]
-		for _, neighbor := range neighbors {
-			partner := neighbor.Partner
-			prod := neighbor.Product
-
-			if seen[partner] && !seen[prod] {
-				seen[prod] = true
-				prev[prod] = Info{Parent: cur, Partner: partner}
-				queue.PushBack(prod)
-			}
-		}
-	}
-
-	// target not found
-	return prev
+func IndexedBFSBuild(targetName string, graph IndexedGraph) map[string]Info {
+    targetID := graph.NameToID[targetName]
+    
+    queue := list.New()
+    seen := make(map[int]bool)
+    
+    for _, baseName := range baseElements {
+        baseID := graph.NameToID[baseName]
+        queue.PushBack(baseID)
+        seen[baseID] = true
+    }
+    
+    // Track parents using integer IDs
+    prevIDs := make(map[int]struct{ParentID, PartnerID int})
+    
+    for queue.Len() > 0 {
+        curID := queue.Remove(queue.Front()).(int)
+        
+        if curID == targetID {
+            break
+        }
+        
+        for _, neighbor := range graph.Edges[curID] {
+            partnerID := neighbor.PartnerID
+            productID := neighbor.ProductID
+            
+            if seen[partnerID] && !seen[productID] {
+                seen[productID] = true
+                prevIDs[productID] = struct{ParentID, PartnerID int}{
+                    ParentID:  curID,
+                    PartnerID: partnerID,
+                }
+                queue.PushBack(productID)
+            }
+        }
+    }
+    
+    // Convert integer results back to strings
+    prev := make(map[string]Info)
+    for productID, info := range prevIDs {
+        productName := graph.IDToName[productID]
+        parentName := graph.IDToName[info.ParentID]
+        partnerName := graph.IDToName[info.PartnerID]
+        
+        prev[productName] = Info{
+            Parent:  parentName,
+            Partner: partnerName,
+        }
+    }
+    
+    return prev
 }
 
-func BFSBuildMulti(target string, combinationMap CombinationMap, maxPaths int64) map[string][]Info {
-	graph := BuildGraph(combinationMap)
+// func BFSBuild2(target string, recipeGraph Graph) map[string]Info {
+// 	queue := list.New()
+// 	for _, base := range baseElements {
+// 		queue.PushBack(base)
+// 	}
 
+// 	seen := make(map[string]bool)
+// 	for _, base := range baseElements {
+// 		seen[base] = true
+// 	}
+
+// 	prev := make(map[string]Info)
+
+// 	for queue.Len() > 0 {
+// 		cur := queue.Remove(queue.Front()).(string)
+
+// 		if cur == target {
+// 			return prev
+// 		}
+
+// 		neighbors := recipeGraph[cur]
+// 		for _, neighbor := range neighbors {
+// 			partner := neighbor.Partner
+// 			prod := neighbor.Product
+
+// 			if seen[partner] && !seen[prod] {
+// 				seen[prod] = true
+// 				prev[prod] = Info{Parent: cur, Partner: partner}
+// 				queue.PushBack(prod)
+// 			}
+// 		}
+// 	}
+
+// 	// target not found
+// 	return prev
+// }
+
+func BFSBuildMulti(target string, recipeGraph Graph, maxPaths int64) map[string][]Info {
 	var wg sync.WaitGroup
 	var pathCount int64
 
@@ -97,7 +146,7 @@ func BFSBuildMulti(target string, combinationMap CombinationMap, maxPaths int64)
 			}
 
 			// Explore all combinations from cur
-			for _, edge := range graph[cur] {
+			for _, edge := range recipeGraph[cur] {
 				partner := edge.Partner
 				prod := edge.Product
 
