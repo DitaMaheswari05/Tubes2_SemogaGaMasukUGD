@@ -1,166 +1,98 @@
-// main.go
+// backend/main.go
 package main
 
 import (
 	"encoding/json"
-	"io"
+	"flag"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 
-	"github.com/PuerkitoBio/goquery"
+	"github.com/wiwekaputera/Tubes2_SemogaGaMasukUGD/backend/recipeFinder"
 )
 
-const baseURL = "https://little-alchemy.fandom.com/wiki/Elements_(Little_Alchemy_2)"
+const (
+	jsonDir  = "json"                   // folder tempat nyimpen recipe.json
+	jsonFile = jsonDir + "/recipe.json" // path lengkap ke file JSON
+)
 
-type Element struct {
-	Name           string     `json:"name"`
-	LocalSVGPath   string     `json:"local_svg_path"`
-	OriginalSVGURL string     `json:"original_svg_url"`
-	Recipes        [][]string `json:"recipes"`
-}
+var (
+	doScrape = flag.Bool("scrape", false, "rebuild recipe.json by scraping") // kalau -scrape=true, jalankan scraping dulu
+	addr     = flag.String("addr", ":8080", "listen address")                // alamat HTTP server
+)
 
 func main() {
-	// 1) Scrape & write JSON
-	data, err := scrapeAll()
+	flag.Parse() // parse flags: doScrape sama addr
+
+	// 1) Kalau dipanggil dengan flag -scrape, langsung scrape dan tulis ulang recipe.json
+	if *doScrape {
+		sections, err := recipeFinder.ScrapeAll() // ambil data dari Fandom
+		if err != nil {
+			log.Fatalf("scrape failed: %v", err)
+		}
+		// pastikan folder json/ ada
+		os.MkdirAll(jsonDir, 0755)
+		// jadikan objek Go -> JSON ter-format
+		raw, _ := json.MarshalIndent(sections, "", "  ")
+		// simpan di disk
+		if err := os.WriteFile(jsonFile, raw, 0644); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("wrote %s", jsonFile)
+		return
+	}
+
+	// 2) Baca file JSON yang udah ada
+	rawJSON, err := os.ReadFile(jsonFile)
 	if err != nil {
-		log.Fatalf("scrape failed: %v", err)
+		log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
 	}
 
-	// ensure data/dirs  
-	if err := os.MkdirAll("json", 0755); err != nil {
-		log.Fatal(err)
-	}
-	raw, _ := json.MarshalIndent(data, "", "  ")
-	if err := os.WriteFile("json/recipe.json", raw, 0644); err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("wrote json/recipe.json (%d sections)", len(data))
+	// 3) “Unmarshal” JSON → struct Go kita
+    //
+    //    rawJSON adalah byte slice berisi konten file recipe.json,  
+    //    misalnya '[{"Tier 1 elements":[{"name":"Mud","recipes":[...]}], ...}]'
+    //
+    //    json.Unmarshal artinya: ambil data JSON mentah (rawJSON)  
+    //    lalu konversi ke tipe Go yang kita tentukan (di sini map[string][]Element).  
+    //    Hasilnya disimpan di variabel “sections”.
+    var sections map[string][]recipeFinder.Element
+    if err := json.Unmarshal(rawJSON, &sections); err != nil {
+        // Kalau error, kita fatal: artinya data JSON-nya tidak valid / berbeda dengan definisi struct Element
+        log.Fatalf("invalid JSON: %v", err)
+    }
 
-	// 2) HTTP handlers
+
+	// 4) Bangun index byPair: untuk tiap pasangan (A,B) daftar produk yang bisa dibuat
+	byPair := recipeFinder.MakeByPair(sections)
+
+	// 5) Endpoint /api/recipes: langsung dump rawJSON-nya (UNTUK SEKARANG)
 	http.HandleFunc("/api/recipes", func(w http.ResponseWriter, r *http.Request) {
-		// CORS
+		// CORS bebas
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(raw)
+		w.Write(rawJSON)
 	})
 
-	// serve SVG files under /svgs/
-	fs := http.FileServer(http.Dir("svgs"))
-	http.Handle("/svgs/", http.StripPrefix("/svgs/", fs))
-
-	log.Println("listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
-func scrapeAll() (map[string][]Element, error) {
-	resp, err := http.Get(baseURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make(map[string][]Element)
-	doc.Find("h3").Each(func(_ int, hdr *goquery.Selection) {
-		title := hdr.Find("span.mw-headline").Text()
-		if title == "" {
+	// 6) Endpoint /api/find?target=NamaElemen
+	//    => jalanin BFSBuild (mencari jalur terpendek dari starting elements ke target)
+	//    => terus build tree-nya (rekonstruksi recipe)
+	http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			http.Error(w, "missing ?target=", http.StatusBadRequest)
 			return
 		}
-
-		// find next table.list-table sibling
-		tbl := hdr.Next()
-		for tbl.Length() > 0 && !tbl.Is("table.list-table") {
-			tbl = tbl.Next()
-		}
-		if tbl.Length() == 0 {
-			return
-		}
-
-		sectionKey := title
-		dir := filepath.Join("svgs", strings.ReplaceAll(title, " ", "_"))
-		os.MkdirAll(dir, 0755)
-
-		var elems []Element
-		// skip header row, iterate rows
-		tbl.Find("tr").Each(func(i int, row *goquery.Selection) {
-			if i == 0 {
-				return
-			}
-			cols := row.Find("td")
-			if cols.Length() < 2 {
-				return
-			}
-			name := cols.Eq(0).Find("a[title]").First().Text()
-			if name == "" {
-				return
-			}
-
-			// SVG link
-			fileA := cols.Eq(0).Find("a.mw-file-description")
-			href, _ := fileA.Attr("href")
-			localPath := ""
-			if href != "" {
-				fname := strings.ReplaceAll(name, " ", "_") + ".svg"
-				localPath = filepath.Join(strings.ReplaceAll(title, " ", "_"), fname)
-				downloadSVG(href, filepath.Join(dir, fname))
-			}
-
-			// recipes
-			recipes := [][]string{} // <-- fix here
-			cols.Eq(1).Find("ul li").Each(func(_ int, li *goquery.Selection) {
-				parts := li.Find("a[title]").Map(func(_ int, a *goquery.Selection) string {
-					return a.Text()
-				})
-				if len(parts) == 2 {
-					recipes = append(recipes, []string{parts[0], parts[1]})
-				}
-			})
-
-			elems = append(elems, Element{
-				Name:           name,
-				LocalSVGPath:   localPath,
-				OriginalSVGURL: href,
-				Recipes:        recipes,
-			})
-		})
-
-		if len(elems) > 0 {
-			out[sectionKey] = elems
-		}
+		prev := recipeFinder.BFSBuild(target, byPair)  // prev map: node ← parent-nya
+		tree := recipeFinder.BuildTree(target, prev)   // bangun struktur pohon recipe
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tree) // kirim JSON ke client
 	})
 
-	return out, nil
-}
-
-func downloadSVG(url, dest string) {
-	resp, err := http.Get(url)
-	if err != nil {
-		log.Printf("svg GET %s: %v", url, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	f, err := os.Create(dest)
-	if err != nil {
-		log.Printf("create %s: %v", dest, err)
-		return
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, resp.Body)
-	if err != nil {
-		log.Printf("write %s: %v", dest, err)
-	}
+	log.Printf("listening on %s…", *addr)
+	log.Fatal(http.ListenAndServe(*addr, nil))
 }
