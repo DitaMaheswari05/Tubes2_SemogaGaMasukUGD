@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -59,6 +60,169 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) map[string]Info {
     }
     
     return prev
+}
+
+// IndexedBFSBuildMulti finds up to maxPaths unique complete paths (recipes) 
+// to the target element by running the BFS repeatedly. Instead of using usedCombos
+// to prune immediately during the search, we record the full recipe signature
+// and check for duplicates after each BFS run.
+func IndexedBFSBuildMulti(targetName string, graph IndexedGraph, maxPaths int64) map[string][]Info {
+    targetID, exists := graph.NameToID[targetName]
+    if !exists {
+        return make(map[string][]Info)
+    }
+    
+    result := make(map[string][]Info)
+    // usedCombos is used here only to mark combinations if desired; in our approach
+    // we will generate a full signature and compare.
+    usedCombos := make(map[string]bool)
+    
+    // Run BFS up to maxPaths times to find unique complete paths.
+    for i := int64(0); i < maxPaths; i++ {
+        // Run one BFS iteration to attempt to get a complete recipe path.
+        path := findUniquePathIndexed(targetID, targetName, graph, usedCombos)
+        if path.Path == nil {
+            // No complete path was found.
+            break
+        }
+        
+        // Generate a signature for the complete recipe path.
+        sig := generatePathSignature(path)
+        // If we already have this complete recipe, repeat the iteration.
+        if alreadyFound(sig, result[targetName]) {
+            i--
+            continue
+        }
+        
+        // Add this unique path to the result.
+        result[targetName] = append(result[targetName], path)
+        
+        // (Optional) Mark all combinations in this path as used.
+        for _, step := range path.Path {
+            if len(step) == 3 {
+                combo := fmt.Sprintf("%s,%s,%s", step[0], step[1], step[2])
+                usedCombos[combo] = true
+            }
+        }
+    }
+    
+    return result
+}
+
+// findUniquePathIndexed performs a BFS (using the IndexedGraph) to find a complete
+// recipe path from any base element to the target. The usedCombos parameter is not
+// used for pruning in this primitive approach.
+func findUniquePathIndexed(targetID int, targetName string, graph IndexedGraph, usedCombos map[string]bool) Info {
+    queue := list.New()
+    // seen tracks visited nodes (by their integer ID) in this BFS run.
+    seen := make(map[int]bool)
+    
+    // Add all base elements into the queue.
+    for _, baseName := range baseElements {
+        baseID := graph.NameToID[baseName]
+        seen[baseID] = true
+        queue.PushBack(struct {
+            elemID int
+            path   [][]int
+        }{
+            elemID: baseID,
+            path:   [][]int{}, // empty path at start
+        })
+    }
+    
+    // BFS loop.
+    for queue.Len() > 0 {
+        curr := queue.Remove(queue.Front()).(struct {
+            elemID int
+            path   [][]int
+        })
+        
+        // If reached the target, convert the integer path to a string path.
+        if curr.elemID == targetID {
+            stringPath := make([][]string, len(curr.path))
+            for i, step := range curr.path {
+                stringPath[i] = []string{
+                    graph.IDToName[step[0]],
+                    graph.IDToName[step[1]],
+                    graph.IDToName[step[2]],
+                }
+            }
+            info := Info{Path: stringPath}
+            if len(curr.path) > 0 {
+                lastStep := curr.path[len(curr.path)-1]
+                info.Parent = graph.IDToName[lastStep[0]]
+                info.Partner = graph.IDToName[lastStep[1]]
+            }
+            return info
+        }
+        
+        // Try all neighbors (possible ingredient combinations) from the current element.
+        for _, neighbor := range graph.Edges[curr.elemID] {
+            partnerID := neighbor.PartnerID
+            productID := neighbor.ProductID
+            
+            // Skip if partner is not seen or product already seen.
+            if !seen[partnerID] || seen[productID] {
+                continue
+            }
+            
+            // For consistent deduplication, sort the two ingredient IDs.
+            var a, b int
+            if curr.elemID < partnerID {
+                a, b = curr.elemID, partnerID
+            } else {
+                a, b = partnerID, curr.elemID
+            }
+            
+            // Build a combo string from the names.
+            aName, bName, productName := graph.IDToName[a], graph.IDToName[b], graph.IDToName[productID]
+            combo := fmt.Sprintf("%s,%s,%s", aName, bName, productName)
+            if usedCombos != nil && usedCombos[combo] {
+                continue
+            }
+            
+            // Create a new path that appends the current combination step.
+            newPath := make([][]int, len(curr.path)+1)
+            copy(newPath, curr.path)
+            newPath[len(curr.path)] = []int{a, b, productID}
+            
+            // Mark the product as visited (to avoid cycles).
+            seen[productID] = true
+            
+            // Push the new state into the BFS queue.
+            queue.PushBack(struct {
+                elemID int
+                path   [][]int
+            }{
+                elemID: productID,
+                path:   newPath,
+            })
+        }
+    }
+    
+    // No path was found.
+    return Info{}
+}
+
+// generatePathSignature builds a signature string from an Info object representing
+// a complete recipe path. Two complete paths that are identical will generate the same signature.
+func generatePathSignature(info Info) string {
+    var sb strings.Builder
+    for _, step := range info.Path {
+        sb.WriteString(strings.Join(step, ","))
+        sb.WriteString("|")
+    }
+    return sb.String()
+}
+
+// alreadyFound checks if a signature already exists in the given slice of Info.
+func alreadyFound(sig string, infos []Info) bool {
+    for _, i := range infos {
+        if generatePathSignature(i) == sig {
+            return true
+        }
+    }
+    return false
 }
 
 // func BFSBuild2(target string, recipeGraph Graph) map[string]Info {

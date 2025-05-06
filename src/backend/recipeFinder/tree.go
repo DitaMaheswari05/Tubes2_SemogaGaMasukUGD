@@ -18,26 +18,40 @@ type RecipeNode struct {
 // 2) kalau ada prev[name], berarti dia bukan base,
 //    turun (recursively) buat Parent dan Partner.
 // 3) gabung hasilnya jadi Children dua buah subtree.
+// BuildTree builds a recipe tree for the given element using the recipe info from prev.
+// If no recipe info for an element is found (and it isn’t a base element), 
+// use a fallback BFS to try to fill in that branch until a base element is reached.
 func BuildTree(name string, prev map[string]Info) *RecipeNode {
-	// bikin node untuk elemen sekarang
-	node := &RecipeNode{Name: name}
-
-	if isBaseElement(name) {
-		return node
-	}
-
-	// cek: apakah elemen ini pernah dicatat di prev?
-	// kalau iya, berarti dia dibuat dari kombinasi dua bahan
-	if info, ok := prev[name]; ok {
-		// info.Parent + info.Partner → name
-		// jadi anak-anaknya adalah subtree Parent dan Partner
-		node.Children = []*RecipeNode{
-			BuildTree(info.Parent, prev),
-			BuildTree(info.Partner, prev),
-		}
-	}
-	// return subtree ini
-	return node
+    // Create a node for the current element.
+    node := &RecipeNode{Name: name}
+    
+    // If this is a base element, we’re done.
+    if isBaseElement(name) {
+        return node
+    }
+    
+    // If we have recorded recipe info for this element in prev, use it.
+    if info, ok := prev[name]; ok {
+        node.Children = []*RecipeNode{
+            BuildTree(info.Parent, prev),
+            BuildTree(info.Partner, prev),
+        }
+        return node
+    }
+    
+    // Otherwise, we have no recipe info for this element from the current BFS run.
+    // As a fallback, try to run a simple BFS (or lookup) to fill this branch.
+    fallback := IndexedBFSBuild(name, GlobalIndexedGraph) // indexedGraph should be globally available or passed as parameter.
+    if len(fallback) > 0 {
+        // Use the fallback result to continue building the tree.
+        fbInfo := fallback[name]
+        node.Children = []*RecipeNode{
+            BuildTree(fbInfo.Parent, fallback),
+            BuildTree(fbInfo.Partner, fallback),
+        }
+    }
+    // If even the fallback doesn’t yield a recipe, we simply return the leaf.
+    return node
 }
 
 func BuildTrees(target string, pathPrev map[string][]Info) []*RecipeNode {

@@ -1,0 +1,3 @@
+package recipeFinder
+
+var GlobalIndexedGraph IndexedGraph

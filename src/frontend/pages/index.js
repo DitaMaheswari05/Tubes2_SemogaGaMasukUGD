@@ -2,9 +2,27 @@
 import { useState } from "react";
 import Link from "next/link";
 
+// Recursive component to render the recipe tree
+function RecipeTree({ node, level = 0 }) {
+  if (!node) return null;
+
+  const padding = level * 20;
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ paddingLeft: padding, display: "flex", alignItems: "center" }}>
+        {level > 0 && <span style={{ marginRight: 8, color: "#666" }}>{level === 1 ? "Made from:" : "└"}</span>}
+        <span style={{ fontWeight: level === 0 ? "bold" : "normal" }}>{node.name}</span>
+      </div>
+
+      {node.children && node.children.map((child, i) => <RecipeTree key={`${child.name}-${i}`} node={child} level={level + 1} />)}
+    </div>
+  );
+}
+
 export default function FinderPage() {
   const [query, setQuery] = useState("");
-  const [json, setJson] = useState(null);
+  const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -14,13 +32,13 @@ export default function FinderPage() {
 
     setLoading(true);
     setError(null);
-    setJson(null);
+    setResponse(null);
 
     try {
       const res = await fetch(`/api/find?target=${encodeURIComponent(query)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setJson(data);
+      setResponse(data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -53,22 +71,43 @@ export default function FinderPage() {
       {loading && <p>Loading…</p>}
       {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
 
-      {json && (
+      {response && (
         <>
-          <h2>Raw JSON Response</h2>
+          <div style={{ marginBottom: 24 }}>
+            <h2>Recipe for "{response.tree.name}"</h2>
+            <div style={{ marginBottom: 16 }}>
+              <strong>Algorithm:</strong> {response.algorithm}
+              <br />
+              <strong>Search time:</strong> {response.duration_ms.toFixed(2)} ms
+            </div>
+
+            <div
+              style={{
+                background: "#f0f0f0",
+                padding: 16,
+                borderRadius: 4,
+                marginBottom: 24,
+              }}>
+              <RecipeTree node={response.tree} />
+            </div>
+          </div>
+
+          <h3>Raw JSON Response</h3>
           <pre
             style={{
-              background: "#f0f0f0",
+              background: "#f8f8f8",
               padding: 16,
               overflowX: "auto",
-              maxHeight: "60vh",
+              maxHeight: "40vh",
+              fontSize: "12px",
+              borderRadius: 4,
             }}>
-            {JSON.stringify(json, null, 2)}
+            {JSON.stringify(response, null, 2)}
           </pre>
         </>
       )}
 
-      {!loading && !json && !error && <p>Type something above and press “Find” to see the raw recipe JSON.</p>}
+      {!loading && !response && !error && <p>Type something above and press "Find" to discover its recipe!</p>}
     </main>
   );
 }

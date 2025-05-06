@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/wiwekaputera/Tubes2_SemogaGaMasukUGD/backend/recipeFinder"
 )
@@ -69,6 +71,7 @@ func main() {
     // combinationMap := recipeFinder.BuildCombinationMap(catalog)
 	// recipeGraph = recipeFinder.BuildGraphFromCatalog(catalog)
 	indexedGraph := recipeFinder.BuildIndexedGraph(catalog)
+	recipeFinder.GlobalIndexedGraph = indexedGraph
 
     // 5) Endpoint /api/recipes: langsung dump rawJSON-nya (UNTUK SEKARANG)
     http.HandleFunc("/api/recipes", func(w http.ResponseWriter, r *http.Request) {
@@ -111,29 +114,127 @@ func main() {
     // 6) Endpoint /api/find?target=NamaElemen
     //    => jalanin BFSBuild (mencari jalur terpendek dari starting elements ke target)
     //    => terus build tree-nya (rekonstruksi recipe)
-    http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
-        target := r.URL.Query().Get("target")
-        if target == "" {
-            http.Error(w, "missing ?target=", http.StatusBadRequest)
-            return
-        }
+    // In main.go, modify your /api/find handler:
 
-        var maxPaths int64 = 20
-        multi := false
+http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		http.Error(w, "missing ?target=", http.StatusBadRequest)
+		return
+	}
 
-        var trees interface{} // Adjust type based on actual return type of BuildTrees
+	// Get maxPaths from query parameter with default fallback
+	maxPaths := int64(5)
+	if maxPathsParam := r.URL.Query().Get("maxPaths"); maxPathsParam != "" {
+		if val, err := strconv.ParseInt(maxPathsParam, 10, 64); err == nil && val > 0 {
+			maxPaths = val
+		}
+	}
+	
+	multi := true
 
-        if multi {
-            pathPrev := recipeFinder.BFSBuildMulti(target, recipeGraph, maxPaths)
-            trees = recipeFinder.BuildTrees(target, pathPrev)
-        } else {
-            prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
-            trees = recipeFinder.BuildTree(target, prev)
-        }
+	// Create response structure with timing
+	type FindResponse struct {
+		Tree      interface{} `json:"tree"`
+		DurationMs float64    `json:"duration_ms"`
+		Algorithm string      `json:"algorithm"`
+	}
 
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(trees)
-    })
+	var response FindResponse
+	
+	if multi {
+		algorithm := "BFS (multi-path)"
+		response.Algorithm = algorithm
+		
+		startTime := time.Now()
+		pathPrev := recipeFinder.IndexedBFSBuildMulti(target, indexedGraph, maxPaths)
+		
+		// Build separate trees for each unique path to the target
+		var trees []*recipeFinder.RecipeNode
+
+		if len(pathPrev[target]) == 0 {
+			response.Tree = trees // Empty array
+			response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+		
+		for _, info := range pathPrev[target] {
+			// Create a map from the path steps for this specific route
+			singlePathMap := make(map[string]recipeFinder.Info)
+			
+			for _, step := range info.Path {
+				if len(step) == 3 {
+					product := step[2]
+					singlePathMap[product] = recipeFinder.Info{
+						Parent:  step[0],
+						Partner: step[1],
+					}
+				}
+			}
+			
+			// Build a complete tree for this path
+			tree := recipeFinder.BuildTree(target, singlePathMap)
+			trees = append(trees, tree)
+		}
+		
+		response.Tree = trees
+		response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
+	} else {
+		algorithm := "Indexed BFS"
+        response.Algorithm = algorithm
+        
+        startTime := time.Now()
+        prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+        response.Tree = recipeFinder.BuildTree(target, prev)
+        response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+})
+
+// http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
+//     target := r.URL.Query().Get("target")
+//     if target == "" {
+//         http.Error(w, "missing ?target=", http.StatusBadRequest)
+//         return
+//     }
+
+//     var maxPaths int64 = 5
+//     multi := true
+
+//     // Create response structure with timing
+//     type FindResponse struct {
+//         Tree      interface{} `json:"tree"`
+//         DurationMs float64    `json:"duration_ms"`
+//         Algorithm string      `json:"algorithm"`
+//     }
+
+//     var response FindResponse
+    
+//     if multi {
+//         algorithm := "BFS (multi-path)"
+//         response.Algorithm = algorithm
+        
+//         startTime := time.Now()
+//         pathPrev := recipeFinder.IndexedBFSBuildMulti(target, indexedGraph, maxPaths)
+//         response.Tree = recipeFinder.BuildTrees(target, pathPrev)
+//         response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
+//     } else {
+//         algorithm := "Indexed BFS"
+//         response.Algorithm = algorithm
+        
+//         startTime := time.Now()
+//         prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+//         response.Tree = recipeFinder.BuildTree(target, prev)
+//         response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
+//     }
+
+//     w.Header().Set("Content-Type", "application/json")
+//     json.NewEncoder(w).Encode(response)
+// })
 
     log.Printf("listening on %s…", *addr)
     log.Fatal(http.ListenAndServe(*addr, nil))
