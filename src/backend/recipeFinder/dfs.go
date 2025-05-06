@@ -5,7 +5,7 @@ package recipeFinder
 // dari produk ke Info (Parent & Partner-nya),
 // supaya kita bisa membangun kembali urutan resepnya nanti.
 
-func DFSBuild(target string, byPair map[Pair][]string) map[string]Info {
+func DFSBuild(target string, combinationMap CombinationMap) map[string]Info {
 	seen := make(map[string]bool)
 	prev := make(map[string]Info)
 	found := false
@@ -15,7 +15,7 @@ func DFSBuild(target string, byPair map[Pair][]string) map[string]Info {
 	}
 
 	for _, start := range baseElements {
-		if dfs(start, target, seen, prev, byPair, &found) {
+		if dfs(start, target, seen, prev, combinationMap, &found) {
 			break
 		}
 	}
@@ -28,7 +28,7 @@ func dfs(
 	target string,
 	seen map[string]bool,
 	prev map[string]Info,
-	byPair map[Pair][]string,
+	combinationMap CombinationMap,
 	found *bool,
 ) bool {
 	if *found {
@@ -41,12 +41,12 @@ func dfs(
 	}
 
 	for partner := range seen {
-		pair := Pair{A: cur, B: partner}
-		for _, prod := range byPair[pair] {
+		combo := IngredientCombo{A: cur, B: partner}
+		for _, prod := range combinationMap[combo] {
 			if !seen[prod] {
 				seen[prod] = true
 				prev[prod] = Info{Parent: cur, Partner: partner}
-				if dfs(prod, target, seen, prev, byPair, found) {
+				if dfs(prod, target, seen, prev, combinationMap, found) {
 					return true
 				}
 			}

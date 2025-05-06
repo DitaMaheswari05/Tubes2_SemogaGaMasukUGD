@@ -1,5 +1,6 @@
 // pages/index.js
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 const cell = {
   border: "1px solid #ccc",
@@ -7,68 +8,47 @@ const cell = {
 };
 
 export default function Home() {
-  const [data, setData] = useState(null);
+  const [catalog, setCatalog] = useState(null);
 
   useEffect(() => {
     fetch("http://localhost:8080/api/recipes")
       .then((r) => r.json())
-      .then(setData)
+      .then(setCatalog)
       .catch(console.error);
   }, []);
 
-  if (!data) return <p>Loading…</p>;
+  if (!catalog) return <p>Loading…</p>;
 
   // build name→svg map
   const nameMap = {};
-  Object.values(data)
-    .flat()
-    .forEach((el) => {
-      if (el.local_svg_path) nameMap[el.name] = el.local_svg_path;
+  catalog.tiers.forEach((tier) => {
+    tier.elements.forEach((el) => {
+      if (el.local_svg_path) {
+        nameMap[el.name] = el.local_svg_path;
+      }
     });
-
-  // order
-  const sectionOrder = [
-    "Special element",
-    "Starting elements",
-    "Tier 1 elements",
-    "Tier 2 elements",
-    "Tier 3 elements",
-    "Tier 4 elements",
-    "Tier 5 elements",
-    "Tier 6 elements",
-    "Tier 7 elements",
-    "Tier 8 elements",
-    "Tier 9 elements",
-    "Tier 10 elements",
-    "Tier 11 elements",
-    "Tier 12 elements",
-    "Tier 13 elements",
-    "Tier 14 elements",
-    "Tier 15 elements",
-  ];
-
-  // sort Object.entries(data) using the custom order
-  const sortedSections = Object.entries(data).sort(([a], [b]) => {
-    const idxA = sectionOrder.indexOf(a);
-    const idxB = sectionOrder.indexOf(b);
-    const safeA = idxA === -1 ? 999 : idxA;
-    const safeB = idxB === -1 ? 999 : idxB;
-    return safeA - safeB;
   });
 
   return (
     <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
       <h1 style={{ textAlign: "center" }}>Little Alchemy Elements</h1>
-      {sortedSections.map(([section, elems]) => (
-        <section key={section}>
+
+      {/* nav back to finder */}
+      <Link href="/">
+        <button style={{ marginBottom: 16 }}>Go to Finder</button>
+      </Link>
+
+      {catalog.tiers.map((tier) => (
+        <section key={tier.Name || tier.name}>
           <h2
             style={{
               marginTop: "2em",
               borderBottom: "1px solid #666",
               paddingBottom: "0.2em",
             }}>
-            {section}
+            {tier.Name || tier.name}
           </h2>
+
           <table
             style={{
               width: "100%",
@@ -79,11 +59,11 @@ export default function Home() {
             <thead>
               <tr>
                 <th style={{ ...cell, width: "280px" }}>Element</th>
-                <th style={{ ...cell }}>Recipes</th>
+                <th style={cell}>Recipes</th>
               </tr>
             </thead>
             <tbody>
-              {elems.map((el) => (
+              {tier.elements.map((el) => (
                 <tr key={el.name}>
                   <td style={cell}>
                     <div style={{ display: "flex", alignItems: "center" }}>
@@ -106,7 +86,7 @@ export default function Home() {
                           <span key={j}>
                             {nameMap[name] && (
                               <img
-                                src={"http://localhost:8080/svgs/" + nameMap[name]}
+                                src={`http://localhost:8080/svgs/${nameMap[name]}`}
                                 alt={name}
                                 width={24}
                                 height={24}

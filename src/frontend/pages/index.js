@@ -1,5 +1,6 @@
 // pages/index.js
 import { useState } from "react";
+import Link from "next/link";
 
 export default function FinderPage() {
   const [query, setQuery] = useState("");
@@ -16,7 +17,6 @@ export default function FinderPage() {
     setJson(null);
 
     try {
-      // 👉 talk to your Go backend
       const res = await fetch(`/api/find?target=${encodeURIComponent(query)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -31,6 +31,11 @@ export default function FinderPage() {
   return (
     <main style={{ padding: 20, fontFamily: "sans-serif" }}>
       <h1>Little Alchemy 2 – Recipe Finder</h1>
+
+      {/* nav button */}
+      <Link href="/recipes">
+        <button style={{ marginBottom: 16 }}>View All Elements</button>
+      </Link>
 
       <form onSubmit={handleSubmit} style={{ marginBottom: 16 }}>
         <input

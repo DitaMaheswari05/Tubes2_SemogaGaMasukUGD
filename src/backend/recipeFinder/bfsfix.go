@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 )
 
-func BFSBuild2(target string, byPair map[Pair][]string) map[string]Info {
-	graph := BuildGraph(byPair)
+func BFSBuild2(target string, combinationMap CombinationMap) map[string]Info {
+	graph := BuildGraph(combinationMap)
 
 	queue := list.New()
 	for _, base := range baseElements {
@@ -47,8 +47,8 @@ func BFSBuild2(target string, byPair map[Pair][]string) map[string]Info {
 	return prev
 }
 
-func BFSBuildMulti(target string, byPair map[Pair][]string, maxPaths int64) map[string][]Info {
-	graph := BuildGraph(byPair)
+func BFSBuildMulti(target string, combinationMap CombinationMap, maxPaths int64) map[string][]Info {
+	graph := BuildGraph(combinationMap)
 
 	var wg sync.WaitGroup
 	var pathCount int64

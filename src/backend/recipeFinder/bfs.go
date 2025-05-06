@@ -17,7 +17,7 @@ var baseElements = []string{"Air", "Earth", "Fire", "Water"}
 // dari produk ke Info (siapa Parent & Partner-nya), supaya kita bisa
 // membangun kembali urutan resepnya nanti.
 
-func BFSBuild(target string, byPair map[Pair][]string) map[string]Info {
+func BFSBuild(target string, combinationMap CombinationMap) map[string]Info {
     // 1) Siapkan queue awal berisi elemen dasar
     queue := make([]string, len(baseElements))
     copy(queue, baseElements)
@@ -44,18 +44,15 @@ func BFSBuild(target string, byPair map[Pair][]string) map[string]Info {
 		// 5) Untuk setiap bahan “partner” yang sudah pernah dilihat (seen),
 		//    coba gabungkan cur + partner, lihat byPair[pair] → daftar produk.
 		for partner := range seen {
-			// Pair{A: cur, B: partner} lookup produk apa saja
-			for _, prod := range byPair[Pair{A: cur, B: partner}] {
-				// 6) Kalau produk baru (belum seen), tandai dan enqueue
-				if !seen[prod] {
-					seen[prod] = true
-					// catat siapa parent & partner-nya
-					prev[prod] = Info{Parent: cur, Partner: partner}
-					// tambahkan ke antrean untuk nanti diproses
-					queue = append(queue, prod)
-				}
-			}
-		}
+            combo := IngredientCombo{A: cur, B: partner}
+            for _, prod := range combinationMap[combo] {
+                if !seen[prod] {
+                    seen[prod] = true
+                    prev[prod] = Info{Parent: cur, Partner: partner}
+                    queue = append(queue, prod)
+                }
+            }
+        }
 	}
 
 	// 7) Kembalikan map prev. Dari sini kita bisa rekonstruksi jalur
