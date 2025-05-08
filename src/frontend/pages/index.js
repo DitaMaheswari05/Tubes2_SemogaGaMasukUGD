@@ -25,6 +25,8 @@ export default function FinderPage() {
   const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [multiMode, setMultiMode] = useState(true); // Add this line
+  const [maxPaths, setMaxPaths] = useState(5); // Add this line
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,7 +37,9 @@ export default function FinderPage() {
     setResponse(null);
 
     try {
-      const res = await fetch(`/api/find?target=${encodeURIComponent(query)}`);
+      // Add multiMode and maxPaths to the query string
+      const url = `/api/find?target=${encodeURIComponent(query)}&multi=${multiMode ? "true" : "false"}&maxPaths=${maxPaths}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setResponse(data);
@@ -56,16 +60,49 @@ export default function FinderPage() {
       </Link>
 
       <form onSubmit={handleSubmit} style={{ marginBottom: 16 }}>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Enter element name…"
-          style={{ padding: 8, fontSize: 16, width: 200 }}
-        />
-        <button type="submit" style={{ marginLeft: 8, padding: "8px 12px", fontSize: 16 }}>
-          Find
-        </button>
+        <div style={{ marginBottom: 12 }}>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Enter element name…"
+            style={{ padding: 8, fontSize: 16, width: 200 }}
+          />
+          <button type="submit" style={{ marginLeft: 8, padding: "8px 12px", fontSize: 16 }}>
+            Find
+          </button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ marginRight: 16 }}>
+            <label style={{ display: "flex", alignItems: "center" }}>
+              <input type="radio" checked={multiMode} onChange={() => setMultiMode(true)} style={{ marginRight: 6 }} />
+              Show multiple recipes
+            </label>
+          </div>
+          <div>
+            <label style={{ display: "flex", alignItems: "center" }}>
+              <input type="radio" checked={!multiMode} onChange={() => setMultiMode(false)} style={{ marginRight: 6 }} />
+              Show single recipe
+            </label>
+          </div>
+        </div>
+
+        {multiMode && (
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ display: "flex", alignItems: "center" }}>
+              Max recipes:
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={maxPaths}
+                onChange={(e) => setMaxPaths(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                style={{ width: 60, marginLeft: 8, padding: 4 }}
+              />
+            </label>
+          </div>
+        )}
       </form>
 
       {loading && <p>Loading…</p>}
@@ -74,7 +111,7 @@ export default function FinderPage() {
       {response && (
         <>
           <div style={{ marginBottom: 24 }}>
-            <h2>Recipe for "{response.tree.name}"</h2>
+            <h2>Recipe for "{Array.isArray(response.tree) ? response.tree[0]?.name : response.tree?.name}"</h2>
             <div style={{ marginBottom: 16 }}>
               <strong>Algorithm:</strong> {response.algorithm}
               <br />
@@ -88,7 +125,16 @@ export default function FinderPage() {
                 borderRadius: 4,
                 marginBottom: 24,
               }}>
-              <RecipeTree node={response.tree} />
+              {Array.isArray(response.tree) ? (
+                response.tree.map((tree, index) => (
+                  <div key={index} style={{ marginBottom: 20 }}>
+                    <h3>Recipe {index + 1}</h3>
+                    <RecipeTree node={tree} />
+                  </div>
+                ))
+              ) : (
+                <RecipeTree node={response.tree} />
+              )}
             </div>
           </div>
 

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
 )
 
 func IndexedBFSBuild(targetName string, graph IndexedGraph) map[string]Info {
@@ -62,326 +60,267 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) map[string]Info {
     return prev
 }
 
-// IndexedBFSBuildMulti finds up to maxPaths unique complete paths (recipes) 
-// to the target element by running the BFS repeatedly. Instead of using usedCombos
-// to prune immediately during the search, we record the full recipe signature
-// and check for duplicates after each BFS run.
-func IndexedBFSBuildMulti(targetName string, graph IndexedGraph, maxPaths int64) map[string][]Info {
-    targetID, exists := graph.NameToID[targetName]
-    if !exists {
-        return make(map[string][]Info)
+// findKthPathIndexed returns the (skip+1)-th shortest recipe path to targetID.
+// It keeps every distinct *path* (sequence of reactions), so the same
+// reagent pair can appear again if the preceding chain is different.
+func findKthPathIndexed(targetID, skip int, g IndexedGraph) Info {
+    type state struct {
+        elem  int
+        path  [][]int        // [a,b,product] triples
+        depth int
     }
-    
-    result := make(map[string][]Info)
-    // usedCombos is used here only to mark combinations if desired; in our approach
-    // we will generate a full signature and compare.
-    usedCombos := make(map[string]bool)
-    
-    // Run BFS up to maxPaths times to find unique complete paths.
-    for i := int64(0); i < maxPaths; i++ {
-        // Run one BFS iteration to attempt to get a complete recipe path.
-        path := findUniquePathIndexed(targetID, targetName, graph, usedCombos)
-        if path.Path == nil {
-            // No complete path was found.
-            break
+    type edge struct{ PartnerID, ProductID int }
+
+    reachable := make(map[int]bool)    // elements already dequeued
+    waiting   := make(map[int][]edge)  // partnerID -> reactions awaiting it
+    seenPath  := make(map[string]bool) // full‑recipe signature -> dedupe
+
+    q := list.New()
+
+    // seed BFS with base elements
+    for _, b := range baseElements {
+        id := g.NameToID[b]
+        reachable[id] = true
+        q.PushBack(state{elem: id, depth: 0})
+    }
+
+    // helper: push a reaction when both reagents are reachable
+    enqueue := func(a, b, product int, curPath [][]int, curDepth int) {
+        newTriple := []int{min(a, b), max(a, b), product}
+        newPath   := append(append([][]int{}, curPath...), newTriple)
+
+        // build a unique signature for the *entire* path
+        var sb strings.Builder
+        for _, t := range newPath {
+            fmt.Fprintf(&sb, "%d-%d-%d|", t[0], t[1], t[2])
         }
-        
-        // Generate a signature for the complete recipe path.
-        sig := generatePathSignature(path)
-        // If we already have this complete recipe, repeat the iteration.
-        if alreadyFound(sig, result[targetName]) {
-            i--
+        sig := sb.String()
+        if seenPath[sig] { // already generated this exact chain
+            return
+        }
+        seenPath[sig] = true
+
+        q.PushBack(state{elem: product, path: newPath, depth: curDepth + 1})
+    }
+
+    hits := 0
+    const maxDepth = 10000 // raise if you ever need deeper combos
+
+    for q.Len() > 0 {
+        st := q.Remove(q.Front()).(state)
+
+        if st.depth > maxDepth {
             continue
         }
-        
-        // Add this unique path to the result.
-        result[targetName] = append(result[targetName], path)
-        
-        // (Optional) Mark all combinations in this path as used.
-        for _, step := range path.Path {
-            if len(step) == 3 {
-                combo := fmt.Sprintf("%s,%s,%s", step[0], step[1], step[2])
-                usedCombos[combo] = true
+        if st.elem == targetID {
+            if hits == skip {
+                return buildInfoFromPath(st.path, targetID, g)
+            }
+            hits++
+            continue
+        }
+
+        // (a) reactions that use st.elem as first reagent
+        for _, r := range g.Edges[st.elem] { // st.elem + partner → product
+            if reachable[r.PartnerID] {
+                enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
+            } else {
+                waiting[r.PartnerID] = append(waiting[r.PartnerID], edge{
+                    PartnerID: st.elem, ProductID: r.ProductID})
             }
         }
-    }
-    
-    return result
-}
 
-// findUniquePathIndexed performs a BFS (using the IndexedGraph) to find a complete
-// recipe path from any base element to the target. The usedCombos parameter is not
-// used for pruning in this primitive approach.
-func findUniquePathIndexed(targetID int, targetName string, graph IndexedGraph, usedCombos map[string]bool) Info {
-    queue := list.New()
-    // seen tracks visited nodes (by their integer ID) in this BFS run.
-    seen := make(map[int]bool)
-    
-    // Add all base elements into the queue.
-    for _, baseName := range baseElements {
-        baseID := graph.NameToID[baseName]
-        seen[baseID] = true
-        queue.PushBack(struct {
-            elemID int
-            path   [][]int
-        }{
-            elemID: baseID,
-            path:   [][]int{}, // empty path at start
-        })
-    }
-    
-    // BFS loop.
-    for queue.Len() > 0 {
-        curr := queue.Remove(queue.Front()).(struct {
-            elemID int
-            path   [][]int
-        })
-        
-        // If reached the target, convert the integer path to a string path.
-        if curr.elemID == targetID {
-            stringPath := make([][]string, len(curr.path))
-            for i, step := range curr.path {
-                stringPath[i] = []string{
-                    graph.IDToName[step[0]],
-                    graph.IDToName[step[1]],
-                    graph.IDToName[step[2]],
+        // (b) reactions waiting *for* st.elem
+        if list, ok := waiting[st.elem]; ok {
+            for _, r := range list {
+                if reachable[r.PartnerID] {
+                    enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
                 }
             }
-            info := Info{Path: stringPath}
-            if len(curr.path) > 0 {
-                lastStep := curr.path[len(curr.path)-1]
-                info.Parent = graph.IDToName[lastStep[0]]
-                info.Partner = graph.IDToName[lastStep[1]]
-            }
-            return info
+            delete(waiting, st.elem)
         }
-        
-        // Try all neighbors (possible ingredient combinations) from the current element.
-        for _, neighbor := range graph.Edges[curr.elemID] {
-            partnerID := neighbor.PartnerID
-            productID := neighbor.ProductID
-            
-            // Skip if partner is not seen or product already seen.
-            if !seen[partnerID] || seen[productID] {
+
+        reachable[st.elem] = true
+    }
+
+    return Info{} // no further paths
+}
+
+// RangePathsIndexed returns up to `limit` distinct paths to `targetID`
+// starting from global rank `start` (0-based). It uses findKthPathIndexed
+// repeatedly, so it preserves breadth-first order.
+func RangePathsIndexed(targetID int, start, limit int, g IndexedGraph) []Info {
+    out := make([]Info, 0, limit)
+    for k := 0; k < limit; k++ {
+        info := findKthPathIndexed(targetID, start+k, g)
+        if info.Path == nil {
+            break // BFS exhausted
+        }
+        out = append(out, info)
+    }
+    return out
+}
+
+
+// findDistinctPathsIndexed returns up to maxPaths shortest *unique* paths
+// to targetID in a single BFS sweep.
+func findDistinctPathsIndexed(targetID int, maxPaths int64, g IndexedGraph) []Info {
+    type state struct {
+        elem  int
+        path  [][]int   // sequence of [a,b,product]
+        depth int
+    }
+    type edge struct{ PartnerID, ProductID int }
+
+    reachable := map[int]bool{}
+    waiting   := map[int][]edge{}
+    seenPath  := map[string]bool{}   // dedupe while exploring
+    doneSig   := map[string]bool{}   // dedupe final hits
+
+    q := list.New()
+    for _, b := range baseElements {
+        id := g.NameToID[b]
+        reachable[id] = true
+        q.PushBack(state{elem: id, depth: 0})
+    }
+
+    // makeSig := func(p [][]int) string {
+	// 	uniq := map[[3]int]struct{}{}
+	// 	for _, t := range p {
+	// 		// canonical triple
+	// 		tr := [3]int{min(t[0], t[1]), max(t[0], t[1]), t[2]}
+	// 		uniq[tr] = struct{}{}
+	// 	}
+	
+	// 	list := make([]string, 0, len(uniq))
+	// 	for tr := range uniq {
+	// 		list = append(list,
+	// 			fmt.Sprintf("%d-%d-%d", tr[0], tr[1], tr[2]))
+	// 	}
+	// 	sort.Strings(list)
+	// 	return strings.Join(list, "|")      // set‑based signature
+	// }
+	
+
+    enqueue := func(a, b, c int, cur [][]int, d int) {
+        np := append(append([][]int{}, cur...), []int{min(a, b), max(a, b), c})
+        sig := canonicalHash(np)
+        if seenPath[sig] {
+            return
+        }
+        seenPath[sig] = true
+        q.PushBack(state{elem: c, path: np, depth: d + 1})
+    }
+
+    const maxDepth = 40
+    out := make([]Info, 0, maxPaths)
+
+    for q.Len() > 0 && int64(len(out)) < maxPaths {
+        st := q.Remove(q.Front()).(state)
+        if st.depth > maxDepth {
+            continue
+        }
+
+        if st.elem == targetID {
+            sig := canonicalHash(st.path)
+            if doneSig[sig] {
                 continue
             }
-            
-            // For consistent deduplication, sort the two ingredient IDs.
-            var a, b int
-            if curr.elemID < partnerID {
-                a, b = curr.elemID, partnerID
+            doneSig[sig] = true
+            out = append(out, buildInfoFromPath(st.path, targetID, g))
+            continue
+        }
+
+        // (a) reactions that use st.elem as first reagent
+        for _, r := range g.Edges[st.elem] {
+            if reachable[r.PartnerID] {
+                enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
             } else {
-                a, b = partnerID, curr.elemID
+                waiting[r.PartnerID] = append(waiting[r.PartnerID], edge{
+                    PartnerID: st.elem, ProductID: r.ProductID})
             }
-            
-            // Build a combo string from the names.
-            aName, bName, productName := graph.IDToName[a], graph.IDToName[b], graph.IDToName[productID]
-            combo := fmt.Sprintf("%s,%s,%s", aName, bName, productName)
-            if usedCombos != nil && usedCombos[combo] {
-                continue
+        }
+
+        // (b) reactions waiting for st.elem
+        if lst, ok := waiting[st.elem]; ok {
+            for _, r := range lst {
+                if reachable[r.PartnerID] {
+                    enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
+                }
             }
-            
-            // Create a new path that appends the current combination step.
-            newPath := make([][]int, len(curr.path)+1)
-            copy(newPath, curr.path)
-            newPath[len(curr.path)] = []int{a, b, productID}
-            
-            // Mark the product as visited (to avoid cycles).
-            seen[productID] = true
-            
-            // Push the new state into the BFS queue.
-            queue.PushBack(struct {
-                elemID int
-                path   [][]int
-            }{
-                elemID: productID,
-                path:   newPath,
-            })
+            delete(waiting, st.elem)
+        }
+        reachable[st.elem] = true
+    }
+    return out
+}
+
+// canonicalHash builds a key from the UNORDERED, DUPLICATE‑FREE set of
+// reaction triples contained in `p`.
+func canonicalHash(p [][]int) string {
+    counts := map[[3]int]int{}
+    for _, t := range p {
+        tr := [3]int{min(t[0], t[1]), max(t[0], t[1]), t[2]}
+        counts[tr]++
+    }
+    list := make([]string, 0, len(counts))
+    for tr, c := range counts {
+        list = append(list,
+            fmt.Sprintf("%d-%d-%d:%d", tr[0], tr[1], tr[2], c))
+    }
+    sort.Strings(list)
+    return strings.Join(list, "|")    // multiset signature
+}
+
+
+
+
+  
+// In your multi recipe loop:
+func IndexedBFSBuildMulti(target string, g IndexedGraph, max int64) map[string][]Info {
+    targetID := g.NameToID[target]
+    paths := findDistinctPathsIndexed(targetID, max, g)
+    return map[string][]Info{target: paths}
+}
+
+
+// Helper function that wasn't shown in your code
+func buildInfoFromPath(path [][]int, targetID int, graph IndexedGraph) Info {
+    if path == nil {
+        return Info{}
+    }
+    
+    stringPath := make([][]string, len(path))
+    for i, step := range path {
+        stringPath[i] = []string{
+            graph.IDToName[step[0]],
+            graph.IDToName[step[1]],
+            graph.IDToName[step[2]],
         }
     }
     
-    // No path was found.
-    return Info{}
-}
-
-// generatePathSignature builds a signature string from an Info object representing
-// a complete recipe path. Two complete paths that are identical will generate the same signature.
-func generatePathSignature(info Info) string {
-    var sb strings.Builder
-    for _, step := range info.Path {
-        sb.WriteString(strings.Join(step, ","))
-        sb.WriteString("|")
+    info := Info{Path: stringPath}
+    if len(path) > 0 {
+        // Get parent/partner from the last step
+        lastStep := path[len(path)-1]
+        info.Parent = graph.IDToName[lastStep[0]]
+        info.Partner = graph.IDToName[lastStep[1]]
     }
-    return sb.String()
+    
+    return info
 }
 
-// alreadyFound checks if a signature already exists in the given slice of Info.
-func alreadyFound(sig string, infos []Info) bool {
-    for _, i := range infos {
-        if generatePathSignature(i) == sig {
-            return true
-        }
+// Simple min/max helpers
+func min(a, b int) int {
+    if a < b {
+        return a
     }
-    return false
+    return b
 }
 
-// func BFSBuild2(target string, recipeGraph Graph) map[string]Info {
-// 	queue := list.New()
-// 	for _, base := range baseElements {
-// 		queue.PushBack(base)
-// 	}
-
-// 	seen := make(map[string]bool)
-// 	for _, base := range baseElements {
-// 		seen[base] = true
-// 	}
-
-// 	prev := make(map[string]Info)
-
-// 	for queue.Len() > 0 {
-// 		cur := queue.Remove(queue.Front()).(string)
-
-// 		if cur == target {
-// 			return prev
-// 		}
-
-// 		neighbors := recipeGraph[cur]
-// 		for _, neighbor := range neighbors {
-// 			partner := neighbor.Partner
-// 			prod := neighbor.Product
-
-// 			if seen[partner] && !seen[prod] {
-// 				seen[prod] = true
-// 				prev[prod] = Info{Parent: cur, Partner: partner}
-// 				queue.PushBack(prod)
-// 			}
-// 		}
-// 	}
-
-// 	// target not found
-// 	return prev
-// }
-
-func BFSBuildMulti(target string, recipeGraph Graph, maxPaths int64) map[string][]Info {
-	var wg sync.WaitGroup
-	var pathCount int64
-
-	// Protects seenElements
-	seenElements := make(map[string]bool)
-	var muElem sync.RWMutex
-
-	// Protects seenCombinations & pathPrev
-	seenCombinations := make(map[string]bool) // "parent,partner,product"
-	pathPrev := make(map[string][]Info)       // records every discovered combo
-	var muCombo sync.Mutex
-
-	// Debug: track activation sequence
-	var activationCount int64
-	const maxDebugActivations = 100
-
-	// Seed base elements
-	muElem.Lock()
-	for _, b := range baseElements {
-		seenElements[b] = true
-	}
-	muElem.Unlock()
-
-	bfsWorker := func(start string) {
-		defer wg.Done()
-
-		// Each queue entry is the steps to current product.
-		queue := list.New()
-		queue.PushBack([][]string{})
-
-		for queue.Len() > 0 {
-			// Stop if we've hit the target cap
-			if maxPaths > 0 && atomic.LoadInt64(&pathCount) >= maxPaths {
-				return
-			}
-
-			currentSteps := queue.Remove(queue.Front()).([][]string)
-
-			// Determine current node
-			var cur string
-			if len(currentSteps) == 0 {
-				cur = start
-			} else {
-				cur = currentSteps[len(currentSteps)-1][2]
-			}
-
-			// Explore all combinations from cur
-			for _, edge := range recipeGraph[cur] {
-				partner := edge.Partner
-				prod := edge.Product
-
-				// Only combine if partner is available
-				muElem.RLock()
-				partnerSeen := seenElements[partner]
-				muElem.RUnlock()
-				if !partnerSeen {
-					continue
-				}
-
-				// Normalize the two inputs, keep prod separate
-				inputs := []string{cur, partner}
-				sort.Strings(inputs)
-				parent, partnerNorm := inputs[0], inputs[1]
-				product := prod
-
-				// Build the full path up to this combination
-				newPath := append(append([][]string{}, currentSteps...), []string{parent, partnerNorm, product})
-				comboKey := fmt.Sprintf("%s,%s,%s", parent, partnerNorm, product)
-
-				// Dedup and record this combination
-				muCombo.Lock()
-				already := seenCombinations[comboKey]
-				if !already {
-					seenCombinations[comboKey] = true
-					pathPrev[product] = append(pathPrev[product], Info{
-						Parent:  parent,
-						Partner: partnerNorm,
-						Path:    newPath,
-					})
-				}
-				muCombo.Unlock()
-
-				if already {
-					continue
-				}
-
-				// If this produced the target, count and possibly stop
-				if product == target {
-					newCount := atomic.AddInt64(&pathCount, 1)
-					fmt.Printf("Found path for %s: %v\n", target, newPath)
-					if maxPaths > 0 && newCount >= maxPaths {
-						return
-					}
-				} else {
-					// Otherwise enqueue for further exploration
-					muElem.Lock()
-					seen := seenElements[product]
-					if !seen {
-						seenElements[product] = true
-						queue.PushBack(newPath)
-
-						// Log activation for first few nodes
-						count := atomic.AddInt64(&activationCount, 1)
-						if count <= maxDebugActivations {
-							fmt.Printf("[Activation #%d] %s discovered by combining %s + %s\n", count, product, parent, partnerNorm)
-						}
-					}
-					muElem.Unlock()
-				}
-			}
-		}
-	}
-
-	// Launch one worker per base element: "Air", "Earth", "Fire", "Water"
-	for _, start := range baseElements {
-		wg.Add(1)
-		go bfsWorker(start)
-	}
-
-	wg.Wait()
-	return pathPrev
+func max(a, b int) int {
+    if a > b {
+        return a
+    }
+    return b
 }
