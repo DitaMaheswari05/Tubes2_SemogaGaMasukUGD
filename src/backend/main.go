@@ -131,9 +131,16 @@ func main() {
 			}
 		}
 		
+		// Get search mode (multi or single path)
 		multi := true
 		if multiParam := r.URL.Query().Get("multi"); multiParam != "" {
 			multi = multiParam == "true"
+		}
+		
+		// Get algorithm type (bfs, dfs, bidirectional)
+		algorithm := "bfs"  // Default to BFS
+		if algoParam := r.URL.Query().Get("algorithm"); algoParam != "" {
+			algorithm = algoParam
 		}
 	
 		// Create response structure with timing
@@ -144,87 +151,115 @@ func main() {
 		}
 	
 		var response FindResponse
-	
-	if multi {
-		// ------------------------------------------------------------------
-		algorithm := "BFS (multi-path incremental)"
-		response.Algorithm = algorithm
-	
 		startTime := time.Now()
-		desired   := int(maxPaths)   // user-requested unique recipe count
-		batch     := 20              // pull 20 raw paths per round
-	
-		var trees []*recipeFinder.RecipeNode
-		printed := map[string]bool{} // tree-level de-dup
-		skip := 0                    // global path index
-	
-	outer:
-		for len(trees) < desired {
-			infos := recipeFinder.RangePathsIndexed(
-				indexedGraph.NameToID[target], skip, batch, indexedGraph)
-			if len(infos) == 0 {           // search exhausted
-				break
+		
+		// Handle different algorithms
+		switch algorithm {
+		case "dfs":
+			// DFS algorithm placeholder
+			if multi {
+				response.Algorithm = "dfs"
+				// Placeholder for multi-path DFS
+				response.Tree = []*recipeFinder.RecipeNode{} // Empty result for now
+			} else {
+				response.Algorithm = "dfs"
+				// Placeholder for single-path DFS
+				prev := recipeFinder.IndexedBFSBuild(target, indexedGraph) // Using BFS as placeholder
+				response.Tree = recipeFinder.BuildTree(target, prev)
 			}
-			skip += len(infos)
-	
-			for _, info := range infos {
-				// convert Info -> map -> tree  (unchanged helper)
-				single := make(recipeFinder.ProductToIngredients)
+			
+		case "bidirectional":
+			// Bidirectional search placeholder
+			if multi {
+				response.Algorithm = "bidirectional"
+				// Placeholder for multi-path bidirectional
+				response.Tree = []*recipeFinder.RecipeNode{} // Empty result for now
+			} else {
+				response.Algorithm = "bidirectional"
+				// Placeholder for single-path bidirectional
+				prev := recipeFinder.IndexedBFSBuild(target, indexedGraph) // Using BFS as placeholder
+				response.Tree = recipeFinder.BuildTree(target, prev)
+			}
+			
+		default: // "bfs" or any other value defaults to BFS
+			if multi {
+				// Multi-path BFS
+				response.Algorithm = "bfs"
 				
-				for _, step := range info.Path {
-					if len(step) == 3 {
-						single[step[2]] = recipeFinder.RecipeStep{
-							Combo: recipeFinder.IngredientCombo{
-								A: step[0],
-								B: step[1],
-							},
+				desired := int(maxPaths)   // user-requested unique recipe count
+				batch := 20                // pull 20 raw paths per round
+				
+				var trees []*recipeFinder.RecipeNode
+				printed := map[string]bool{} // tree-level de-dup
+				skip := 0                    // global path index
+				
+			outer:
+				for len(trees) < desired {
+					infos := recipeFinder.RangePathsIndexed(
+						indexedGraph.NameToID[target], skip, batch, indexedGraph)
+					if len(infos) == 0 {     // search exhausted
+						break
+					}
+					skip += len(infos)
+					
+					for _, info := range infos {
+						// convert Info -> map -> tree
+						single := make(recipeFinder.ProductToIngredients)
+						
+						for _, step := range info.Path {
+							if len(step) == 3 {
+								single[step[2]] = recipeFinder.RecipeStep{
+									Combo: recipeFinder.IngredientCombo{
+										A: step[0],
+										B: step[1],
+									},
+								}
+							}
+						}
+						
+						tree := recipeFinder.BuildTree(target, single)
+						
+						keyBytes, _ := json.Marshal(tree)   // stable string key
+						if printed[string(keyBytes)] {
+							continue // duplicate visual recipe; skip
+						}
+						printed[string(keyBytes)] = true
+						trees = append(trees, tree)
+						if len(trees) == desired {
+							break outer
 						}
 					}
 				}
-
-				tree := recipeFinder.BuildTree(target, single)
-	
-				keyBytes, _ := json.Marshal(tree)   // stable string key
-				if printed[string(keyBytes)] {
-					continue // duplicate visual recipe; skip
-				}
-				printed[string(keyBytes)] = true
-				trees = append(trees, tree)
-				if len(trees) == desired {
-					break outer
-				}
+				
+				response.Tree = trees
+			} else {
+				// Single-path BFS
+				response.Algorithm = "bfs"
+				
+				prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+				response.Tree = recipeFinder.BuildTree(target, prev)
 			}
 		}
-	
-		response.Tree = trees
+		
+		// Calculate duration
 		response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
-		// ------------------------------------------------------------------
-	} else {
-		algorithm := "Indexed BFS"
-        response.Algorithm = algorithm
-        
-        startTime := time.Now()
-        prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
-        response.Tree = recipeFinder.BuildTree(target, prev)
-        response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
-	}
-
-	// Dump raw JSON to file
-    rawJSON, err := json.MarshalIndent(response, "", "  ")
-    if err == nil {
-        // Ensure directory exists
-        os.MkdirAll(filepath.Join("json"), 0755)
-        // Write to file
-        err = os.WriteFile(filepath.Join("json", "queryResult.json"), rawJSON, 0644)
-        if err != nil {
-            log.Printf("Failed to write query result: %v", err)
-        }
-    }
-    
-    // Send response to client as normal
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(response)
-})
+		
+		// Dump raw JSON to file
+		rawJSON, err := json.MarshalIndent(response, "", "  ")
+		if err == nil {
+			// Ensure directory exists
+			os.MkdirAll(filepath.Join("json"), 0755)
+			// Write to file
+			err = os.WriteFile(filepath.Join("json", "queryResult.json"), rawJSON, 0644)
+			if err != nil {
+				log.Printf("Failed to write query result: %v", err)
+			}
+		}
+		
+		// Send response to client
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	})
 
     log.Printf("listening on %s…", *addr)
     log.Fatal(http.ListenAndServe(*addr, nil))

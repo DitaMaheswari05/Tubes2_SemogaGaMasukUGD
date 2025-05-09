@@ -1,159 +1,157 @@
-// pages/index.js
-import { useState } from "react";
+"use client";
+
+import { useState, useEffect } from "react";
+import Head from "next/head";
 import Link from "next/link";
+import SearchForm from "../components/SearchForm";
+import RecipeTreeText from "../components/RecipeTreeText";
 
-// Recursive component to render the recipe tree
-function RecipeTree({ node, level = 0 }) {
-  if (!node) return null;
-
-  const padding = level * 20;
-
-  return (
-    <div style={{ marginBottom: 8 }}>
-      <div style={{ paddingLeft: padding, display: "flex", alignItems: "center" }}>
-        {level > 0 && <span style={{ marginRight: 8, color: "#666" }}>{level === 1 ? "Made from:" : "└"}</span>}
-        <span style={{ fontWeight: level === 0 ? "bold" : "normal" }}>{node.name}</span>
-      </div>
-
-      {node.children && node.children.map((child, i) => <RecipeTree key={`${child.name}-${i}`} node={child} level={level + 1} />)}
-    </div>
-  );
-}
-
-export default function FinderPage() {
-  const [query, setQuery] = useState("");
-  const [response, setResponse] = useState(null);
-  const [loading, setLoading] = useState(false);
+export default function Index() {
+  const [algorithm, setAlgorithm] = useState("bfs");
+  const [multiMode, setMultiMode] = useState(false);
+  const [maxRecipes, setMaxRecipes] = useState(5);
+  const [targetElement, setTargetElement] = useState("");
+  const [results, setResults] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchStats, setSearchStats] = useState({ time: 0, nodesVisited: 0 });
+  const [availableElements, setAvailableElements] = useState([]);
   const [error, setError] = useState(null);
-  const [multiMode, setMultiMode] = useState(true); // Add this line
-  const [maxPaths, setMaxPaths] = useState(5); // Add this line
+  const [response, setResponse] = useState(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  useEffect(() => {
+    // Load available elements
+    fetch("/api/elements")
+      .then((res) => res.json())
+      .then((data) => {
+        setAvailableElements(data.elements || []);
+      })
+      .catch((err) => {
+        console.error("Failed to load elements:", err);
+        setAvailableElements([]);
+      });
+  }, []);
 
-    setLoading(true);
+  const handleSearch = async () => {
+    if (!targetElement) return;
+
+    setIsLoading(true);
     setError(null);
     setResponse(null);
+    setResults(null);
 
     try {
-      // Add multiMode and maxPaths to the query string
-      const url = `/api/find?target=${encodeURIComponent(query)}&multi=${multiMode ? "true" : "false"}&maxPaths=${maxPaths}`;
+      // Use Next.js API route
+      const url = `/api/find?target=${encodeURIComponent(targetElement)}&multi=${
+        multiMode ? "true" : "false"
+      }&maxPaths=${maxRecipes}&algorithm=${algorithm}`;
       const res = await fetch(url);
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const data = await res.json();
       setResponse(data);
+
+      // Update stats
+      setSearchStats({
+        time: data.duration_ms,
+        nodesVisited: 0, // API doesn't provide this
+      });
+
+      // Format results for display
+      if (Array.isArray(data.tree)) {
+        setResults(data.tree);
+      } else if (data.tree) {
+        setResults([data.tree]); // Wrap single tree in array
+      } else {
+        setResults([]);
+      }
+
+      setAlgorithm(data.algorithm || "bfs");
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <main style={{ padding: 20, fontFamily: "sans-serif" }}>
-      <h1>Little Alchemy 2 – Recipe Finder</h1>
+    <>
+      <Head>
+        <title>Little Alchemy 2 Recipe Finder</title>
+        <meta name="description" content="Find recipes for Little Alchemy 2 elements" />
+      </Head>
 
-      {/* nav button */}
-      <Link href="/recipes">
-        <button style={{ marginBottom: 16 }}>View All Elements</button>
-      </Link>
+      <div className="app">
+        <header className="app-header">
+          <h1>Little Alchemy 2 Recipe Finder</h1>
 
-      <form onSubmit={handleSubmit} style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 12 }}>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Enter element name…"
-            style={{ padding: 8, fontSize: 16, width: 200 }}
+          {/* Next.js Link component */}
+          <div className="nav-links">
+            <Link href="/recipes" className="nav-link">
+              <img src="/icons/catalog.png" alt="Catalog" className="nav-icon" width="24" height="24" />
+            </Link>
+          </div>
+        </header>
+
+        <main className="app-content">
+          <SearchForm
+            algorithm={algorithm}
+            setAlgorithm={setAlgorithm}
+            multiMode={multiMode}
+            setMultiMode={setMultiMode}
+            maxRecipes={maxRecipes}
+            setMaxRecipes={setMaxRecipes}
+            targetElement={targetElement}
+            setTargetElement={setTargetElement}
+            handleSearch={handleSearch}
+            isLoading={isLoading}
+            availableElements={availableElements}
           />
-          <button type="submit" style={{ marginLeft: 8, padding: "8px 12px", fontSize: 16 }}>
-            Find
-          </button>
-        </div>
 
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ marginRight: 16 }}>
-            <label style={{ display: "flex", alignItems: "center" }}>
-              <input type="radio" checked={multiMode} onChange={() => setMultiMode(true)} style={{ marginRight: 6 }} />
-              Show multiple recipes
-            </label>
-          </div>
-          <div>
-            <label style={{ display: "flex", alignItems: "center" }}>
-              <input type="radio" checked={!multiMode} onChange={() => setMultiMode(false)} style={{ marginRight: 6 }} />
-              Show single recipe
-            </label>
-          </div>
-        </div>
-
-        {multiMode && (
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display: "flex", alignItems: "center" }}>
-              Max recipes:
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={maxPaths}
-                onChange={(e) => setMaxPaths(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
-                style={{ width: 60, marginLeft: 8, padding: 4 }}
-              />
-            </label>
-          </div>
-        )}
-      </form>
-
-      {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
-
-      {response && (
-        <>
-          <div style={{ marginBottom: 24 }}>
-            <h2>Recipe for "{Array.isArray(response.tree) ? response.tree[0]?.name : response.tree?.name}"</h2>
-            <div style={{ marginBottom: 16 }}>
-              <strong>Algorithm:</strong> {response.algorithm}
-              <br />
-              <strong>Search time:</strong> {response.duration_ms.toFixed(2)} ms
+          {isLoading && (
+            <div className="loading">
+              <p>Mencari resep.....</p>
             </div>
+          )}
 
-            <div
-              style={{
-                background: "#f0f0f0",
-                padding: 16,
-                borderRadius: 4,
-                marginBottom: 24,
-              }}>
-              {Array.isArray(response.tree) ? (
-                response.tree.map((tree, index) => (
-                  <div key={index} style={{ marginBottom: 20 }}>
-                    <h3>Recipe {index + 1}</h3>
-                    <RecipeTree node={tree} />
-                  </div>
-                ))
+          {error && (
+            <div className="error">
+              <p>Error: {error}</p>
+            </div>
+          )}
+
+          {results && (
+            <div className="results-container">
+              <div className="search-stats">
+                <p>
+                  Waktu pencarian: <strong>{searchStats.time} ms</strong>
+                </p>
+                <p>
+                  Node yang dikunjungi: <strong>{searchStats.nodesVisited}</strong>
+                </p>
+              </div>
+
+              {results.length > 0 ? (
+                <div className="recipe-trees">
+                  <h2>
+                    Found {results.length} recipe{results.length !== 1 ? "s" : ""} for {targetElement}
+                  </h2>
+                  {results.map((tree, index) => (
+                    <div key={index} className="recipe-tree">
+                      <h3>Recipe {index + 1}</h3>
+                      <RecipeTreeText node={tree} />
+                    </div>
+                  ))}
+                </div>
               ) : (
-                <RecipeTree node={response.tree} />
+                <div className="no-results">
+                  <p>No recipes found for {targetElement}</p>
+                </div>
               )}
             </div>
-          </div>
-
-          <h3>Raw JSON Response</h3>
-          <pre
-            style={{
-              background: "#f8f8f8",
-              padding: 16,
-              overflowX: "auto",
-              maxHeight: "40vh",
-              fontSize: "12px",
-              borderRadius: 4,
-            }}>
-            {JSON.stringify(response, null, 2)}
-          </pre>
-        </>
-      )}
-
-      {!loading && !response && !error && <p>Type something above and press "Find" to discover its recipe!</p>}
-    </main>
+          )}
+        </main>
+      </div>
+    </>
   );
 }

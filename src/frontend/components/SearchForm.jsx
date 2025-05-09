@@ -1,11 +1,10 @@
-"use client"
-import "./SearchForm.css"
+"use client";
 
 function SearchForm({
   algorithm,
   setAlgorithm,
-  searchMode,
-  setSearchMode,
+  multiMode,
+  setMultiMode,
   maxRecipes,
   setMaxRecipes,
   targetElement,
@@ -22,22 +21,19 @@ function SearchForm({
           <button
             className={`algorithm-btn ${algorithm === "bfs" ? "active" : ""}`}
             onClick={() => setAlgorithm("bfs")}
-            disabled={isLoading}
-          >
+            disabled={isLoading}>
             Breadth-First Search (BFS)
           </button>
           <button
             className={`algorithm-btn ${algorithm === "dfs" ? "active" : ""}`}
             onClick={() => setAlgorithm("dfs")}
-            disabled={isLoading}
-          >
+            disabled={isLoading}>
             Depth-First Search (DFS)
           </button>
           <button
             className={`algorithm-btn ${algorithm === "bidirectional" ? "active" : ""}`}
             onClick={() => setAlgorithm("bidirectional")}
-            disabled={isLoading}
-          >
+            disabled={isLoading}>
             Bidirectional Search
           </button>
         </div>
@@ -47,23 +43,21 @@ function SearchForm({
         <label htmlFor="searchMode">Mode Pencarian Resep:</label>
         <div className="toggle-container">
           <button
-            className={`toggle-btn ${searchMode === "shortest" ? "active" : ""}`}
-            onClick={() => setSearchMode("shortest")}
-            disabled={isLoading}
-          >
+            className={`toggle-btn ${multiMode === false ? "active" : ""}`}
+            onClick={() => setMultiMode(false)}
+            disabled={isLoading}>
             Shortest Recipe
           </button>
           <button
-            className={`toggle-btn ${searchMode === "multiple" ? "active" : ""}`}
-            onClick={() => setSearchMode("multiple")}
-            disabled={isLoading}
-          >
+            className={`toggle-btn ${multiMode === true ? "active" : ""}`}
+            onClick={() => setMultiMode(true)}
+            disabled={isLoading}>
             Multiple Recipes
           </button>
         </div>
       </div>
 
-      {searchMode === "multiple" && (
+      {multiMode === true && (
         <div className="form-group">
           <label htmlFor="maxRecipes">Maksimum Resep yang Dicari:</label>
           <input
@@ -72,34 +66,31 @@ function SearchForm({
             value={maxRecipes}
             onChange={(e) => setMaxRecipes(Math.max(1, Number.parseInt(e.target.value) || 1))}
             min="1"
-            max="20"
+            max="100"
             disabled={isLoading}
           />
         </div>
       )}
 
       <div className="form-group">
-        <label htmlFor="targetElement">Target Elemen (in english) :</label>
-        <select
-          id="targetElement"
-          value={targetElement}
-          onChange={(e) => setTargetElement(e.target.value)}
-          disabled={isLoading}
-        >
-          <option value="">Pilih satu elemen</option>
-          {availableElements.map((element) => (
-            <option key={element} value={element}>
-              {element}
-            </option>
-          ))}
-        </select>
+        <label htmlFor="targetElement">Target Elemen:</label>
+        <div className="input-group">
+          <input
+            type="text"
+            id="targetElement"
+            value={targetElement}
+            onChange={(e) => setTargetElement(e.target.value)}
+            placeholder="Masukkan nama elemen"
+            disabled={isLoading}
+          />
+        </div>
       </div>
 
       <button className="search-btn" onClick={handleSearch} disabled={isLoading || !targetElement}>
-        {isLoading ? "Searching..." : "Find Recipes"}
+        {isLoading ? "Searching..." : "Find Recipe(s)"}
       </button>
     </div>
-  )
+  );
 }
 
-export default SearchForm
+export default SearchForm;
