@@ -116,34 +116,34 @@ func main() {
     //    => terus build tree-nya (rekonstruksi recipe)
     // In main.go, modify your /api/find handler:
 
-http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
-	target := r.URL.Query().Get("target")
-	if target == "" {
-		http.Error(w, "missing ?target=", http.StatusBadRequest)
-		return
-	}
-
-	// Get maxPaths from query parameter with default fallback
-	maxPaths := int64(5)
-	if maxPathsParam := r.URL.Query().Get("maxPaths"); maxPathsParam != "" {
-		if val, err := strconv.ParseInt(maxPathsParam, 10, 64); err == nil && val > 0 {
-			maxPaths = val
+	http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
+		target := r.URL.Query().Get("target")
+		if target == "" {
+			http.Error(w, "missing ?target=", http.StatusBadRequest)
+			return
 		}
-	}
 	
-	multi := true
-	if multiParam := r.URL.Query().Get("multi"); multiParam != "" {
-        multi = multiParam == "true"
-    }
-
-	// Create response structure with timing
-	type FindResponse struct {
-		Tree      interface{} `json:"tree"`
-		DurationMs float64    `json:"duration_ms"`
-		Algorithm string      `json:"algorithm"`
-	}
-
-	var response FindResponse
+		// Get maxPaths from query parameter with default fallback
+		maxPaths := int64(5)
+		if maxPathsParam := r.URL.Query().Get("maxPaths"); maxPathsParam != "" {
+			if val, err := strconv.ParseInt(maxPathsParam, 10, 64); err == nil && val > 0 {
+				maxPaths = val
+			}
+		}
+		
+		multi := true
+		if multiParam := r.URL.Query().Get("multi"); multiParam != "" {
+			multi = multiParam == "true"
+		}
+	
+		// Create response structure with timing
+		type FindResponse struct {
+			Tree      interface{} `json:"tree"`
+			DurationMs float64    `json:"duration_ms"`
+			Algorithm string      `json:"algorithm"`
+		}
+	
+		var response FindResponse
 	
 	if multi {
 		// ------------------------------------------------------------------
@@ -181,7 +181,7 @@ http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				
+
 				tree := recipeFinder.BuildTree(target, single)
 	
 				keyBytes, _ := json.Marshal(tree)   // stable string key
@@ -209,8 +209,21 @@ http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
         response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	// Dump raw JSON to file
+    rawJSON, err := json.MarshalIndent(response, "", "  ")
+    if err == nil {
+        // Ensure directory exists
+        os.MkdirAll(filepath.Join("json"), 0755)
+        // Write to file
+        err = os.WriteFile(filepath.Join("json", "queryResult.json"), rawJSON, 0644)
+        if err != nil {
+            log.Printf("Failed to write query result: %v", err)
+        }
+    }
+    
+    // Send response to client as normal
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(response)
 })
 
     log.Printf("listening on %s…", *addr)
