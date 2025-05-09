@@ -95,9 +95,9 @@ export default function FinderPage() {
               <input
                 type="number"
                 min="1"
-                max="20"
+                max="100"
                 value={maxPaths}
-                onChange={(e) => setMaxPaths(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                onChange={(e) => setMaxPaths(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
                 style={{ width: 60, marginLeft: 8, padding: 4 }}
               />
             </label>

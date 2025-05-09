@@ -169,13 +169,19 @@ http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
 	
 			for _, info := range infos {
 				// convert Info -> map -> tree  (unchanged helper)
-				single := make(map[string]recipeFinder.Info)
+				single := make(recipeFinder.ProductToIngredients)
+				
 				for _, step := range info.Path {
 					if len(step) == 3 {
-						single[step[2]] = recipeFinder.Info{
-							Parent:  step[0], Partner: step[1]}
+						single[step[2]] = recipeFinder.RecipeStep{
+							Combo: recipeFinder.IngredientCombo{
+								A: step[0],
+								B: step[1],
+							},
+						}
 					}
 				}
+				
 				tree := recipeFinder.BuildTree(target, single)
 	
 				keyBytes, _ := json.Marshal(tree)   // stable string key

@@ -21,61 +21,68 @@ type RecipeNode struct {
 // BuildTree builds a recipe tree for the given element using the recipe info from prev.
 // If no recipe info for an element is found (and it isn’t a base element), 
 // use a fallback BFS to try to fill in that branch until a base element is reached.
-func BuildTree(name string, prev map[string]Info) *RecipeNode {
+// BuildTree builds a recipe tree for the given element using the recipe info from prev.
+func BuildTree(name string, prev ProductToIngredients) *RecipeNode {
     // Create a node for the current element.
     node := &RecipeNode{Name: name}
     
-    // If this is a base element, we’re done.
+    // If this is a base element, we're done.
     if isBaseElement(name) {
         return node
     }
     
     // If we have recorded recipe info for this element in prev, use it.
-    if info, ok := prev[name]; ok {
+    if recipeStep, ok := prev[name]; ok {
         node.Children = []*RecipeNode{
-            BuildTree(info.Parent, prev),
-            BuildTree(info.Partner, prev),
+            BuildTree(recipeStep.Combo.A, prev),
+            BuildTree(recipeStep.Combo.B, prev),
         }
         return node
     }
     
     // Otherwise, we have no recipe info for this element from the current BFS run.
     // As a fallback, try to run a simple BFS (or lookup) to fill this branch.
-    fallback := IndexedBFSBuild(name, GlobalIndexedGraph) // indexedGraph should be globally available or passed as parameter.
+    fallback := IndexedBFSBuild(name, GlobalIndexedGraph)
     if len(fallback) > 0 {
         // Use the fallback result to continue building the tree.
-        fbInfo := fallback[name]
+        fbRecipe := fallback[name]
         node.Children = []*RecipeNode{
-            BuildTree(fbInfo.Parent, fallback),
-            BuildTree(fbInfo.Partner, fallback),
+            BuildTree(fbRecipe.Combo.A, fallback),
+            BuildTree(fbRecipe.Combo.B, fallback),
         }
     }
-    // If even the fallback doesn’t yield a recipe, we simply return the leaf.
+    
+    // If even the fallback doesn't yield a recipe, we simply return the leaf.
     return node
 }
 
-func BuildTrees(target string, pathPrev map[string][]Info) []*RecipeNode {
-	var trees []*RecipeNode
+func BuildTrees(target string, pathPrev map[string][]RecipeStep) []*RecipeNode {
+    var trees []*RecipeNode
 
-	for _, info := range pathPrev[target] {
-		// Use only the steps from this specific path to build prev
-		prev := make(map[string]Info)
-		for _, step := range info.Path {
-			if len(step) == 3 {
-				parent, partner, product := step[0], step[1], step[2]
-				prev[product] = Info{Parent: parent, Partner: partner}
-			}
-		}
+    for _, recipeStep := range pathPrev[target] {
+        // Use only the steps from this specific path to build prev
+        prev := make(ProductToIngredients)
+        for _, step := range recipeStep.Path {
+            if len(step) == 3 {
+                product := step[2]
+                prev[product] = RecipeStep{
+                    Combo: IngredientCombo{
+                        A: step[0],
+                        B: step[1],
+                    },
+                }
+            }
+        }
 
-		tree := BuildTree(target, prev)
-		trees = append(trees, tree)
-	}
+        tree := BuildTree(target, prev)
+        trees = append(trees, tree)
+    }
 
-	return trees
+    return trees
 }
 
 func isBaseElement(name string) bool {
-	for _, b := range baseElements {
+	for _, b := range BaseElements {
 		if b == name {
 			return true
 		}

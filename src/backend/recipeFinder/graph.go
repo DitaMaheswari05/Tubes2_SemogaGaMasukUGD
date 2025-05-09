@@ -1,12 +1,5 @@
 package recipeFinder
 
-type Neighbor struct {
-	Partner string
-	Product string
-}
-
-type Graph map[string][]Neighbor
-
 func BuildGraphFromCatalog(cat Catalog) Graph {
     graph := make(Graph)
     for _, tier := range cat.Tiers {

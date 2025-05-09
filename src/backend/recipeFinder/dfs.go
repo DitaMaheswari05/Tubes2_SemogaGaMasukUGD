@@ -10,11 +10,11 @@ func DFSBuild(target string, combinationMap CombinationMap) map[string]Info {
 	prev := make(map[string]Info)
 	found := false
 
-	for _, e := range baseElements {
+	for _, e := range BaseElements {
 		seen[e] = true
 	}
 
-	for _, start := range baseElements {
+	for _, start := range BaseElements {
 		if dfs(start, target, seen, prev, combinationMap, &found) {
 			break
 		}

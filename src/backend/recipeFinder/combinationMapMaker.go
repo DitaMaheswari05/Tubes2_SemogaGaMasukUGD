@@ -1,14 +1,5 @@
 package recipeFinder
 
-// IngredientCombo is an ordered pair of two ingredient names.
-type IngredientCombo struct {
-  A string `json:"a"`
-  B string `json:"b"`
-}
-
-// CombinationMap maps each ingredient combo to all products you can craft.
-type CombinationMap map[IngredientCombo][]string
-
 // BuildCombinationMap builds a CombinationMap from the full Catalog.
 func BuildCombinationMap(cat Catalog) CombinationMap {
   combos := make(CombinationMap)
