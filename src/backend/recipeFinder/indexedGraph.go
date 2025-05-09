@@ -110,3 +110,45 @@ func (g *IndexedGraph) GetBaseElementIDs() []int {
     }
     return ids
 }
+
+// Global variable to cache element tiers
+var elementTierCache map[string]int
+
+// InitElementTiers builds a mapping of elements to their tier levels
+func InitElementTiers(cat Catalog) {
+    elementTierCache = make(map[string]int)
+    
+    // Add base elements with tier 0
+    for _, base := range BaseElements {
+        elementTierCache[base] = 0
+    }
+    
+    // Process catalog tiers
+    for tierIndex, tier := range cat.Tiers {
+        tierLevel := tierIndex + 1 // Tier levels start at 1 (tier 0 is base elements)
+        
+        // Add all elements in this tier to the cache
+        for _, element := range tier.Elements {
+            elementTierCache[element.Name] = tierLevel
+        }
+    }
+}
+
+// getElementTier returns the tier level of an element
+// Base elements have tier 0, and higher tiers increase from there
+func getElementTier(element string) int {
+    // Check if element exists in cache
+    if tier, exists := elementTierCache[element]; exists {
+        return tier
+    }
+    
+    // If not in cache, check if it's a base element
+    for _, base := range BaseElements {
+        if element == base {
+            return 0
+        }
+    }
+    
+    // Unknown element, return a high value to avoid using it
+    return 999
+}

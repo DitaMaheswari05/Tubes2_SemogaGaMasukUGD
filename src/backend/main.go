@@ -66,12 +66,14 @@ func main() {
         // Kalau error, kita fatal: artinya data JSON-nya tidak valid / berbeda dengan definisi struct Element
         log.Fatalf("invalid JSON: %v", err)
     }
+	recipeFinder.InitElementTiers(catalog)
 
     // 4) Bangun index byPair: untuk tiap pasangan (A,B) daftar produk yang bisa dibuat
     // combinationMap := recipeFinder.BuildCombinationMap(catalog)
 	// recipeGraph = recipeFinder.BuildGraphFromCatalog(catalog)
 	indexedGraph := recipeFinder.BuildIndexedGraph(catalog)
 	recipeFinder.GlobalIndexedGraph = indexedGraph
+
 
     // 5) Endpoint /api/recipes: langsung dump rawJSON-nya (UNTUK SEKARANG)
     http.HandleFunc("/api/recipes", func(w http.ResponseWriter, r *http.Request) {
@@ -156,16 +158,57 @@ func main() {
 		// Handle different algorithms
 		switch algorithm {
 		case "dfs":
-			// DFS algorithm placeholder
+			// DFS algorithm
 			if multi {
 				response.Algorithm = "dfs"
-				// Placeholder for multi-path DFS
-				response.Tree = []*recipeFinder.RecipeNode{} // Empty result for now
+				
+				// Get user-requested recipe count
+				desired := int(maxPaths)
+				
+				// Call the multi-path DFS function
+				recipeSteps := recipeFinder.RangeDFSPaths(target, desired, indexedGraph)
+				
+				// Convert recipe steps to trees
+				var trees []*recipeFinder.RecipeNode
+				printed := make(map[string]bool) // prevent duplicates
+				
+				for _, step := range recipeSteps {
+					// Convert path to a ProductToIngredients map
+					single := make(recipeFinder.ProductToIngredients)
+					
+					for _, pathStep := range step.Path {
+						if len(pathStep) == 3 {
+							product := pathStep[2]
+							single[product] = recipeFinder.RecipeStep{
+								Combo: recipeFinder.IngredientCombo{
+									A: pathStep[0],
+									B: pathStep[1],
+								},
+							}
+						}
+					}
+					
+					// Build tree from the map
+					tree := recipeFinder.BuildTree(target, single)
+					
+					// Deduplicate using tree JSON representation
+					keyBytes, _ := json.Marshal(tree)
+					if printed[string(keyBytes)] {
+						continue // Skip duplicate trees
+					}
+					printed[string(keyBytes)] = true
+					trees = append(trees, tree)
+					
+					if len(trees) >= desired {
+						break
+					}
+				}
+				
+				response.Tree = trees
 			} else {
 				response.Algorithm = "dfs"
-				// Placeholder for single-path DFS
-				prev := recipeFinder.IndexedBFSBuild(target, indexedGraph) // Using BFS as placeholder
-				response.Tree = recipeFinder.BuildTree(target, prev)
+				recipes := recipeFinder.DFSBuildTargetToBase(target, indexedGraph)
+				response.Tree = recipeFinder.BuildTree(target, recipes)
 			}
 			
 		case "bidirectional":
@@ -233,9 +276,7 @@ func main() {
 				
 				response.Tree = trees
 			} else {
-				// Single-path BFS
 				response.Algorithm = "bfs"
-				
 				prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
 				response.Tree = recipeFinder.BuildTree(target, prev)
 			}
