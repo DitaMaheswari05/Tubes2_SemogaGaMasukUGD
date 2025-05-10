@@ -150,6 +150,7 @@ func main() {
 			Tree      interface{} `json:"tree"`
 			DurationMs float64    `json:"duration_ms"`
 			Algorithm string      `json:"algorithm"`
+			NodesVisited int        `json:"nodes_visited"`
 		}
 	
 		var response FindResponse
@@ -158,6 +159,7 @@ func main() {
 		// Handle different algorithms
 		switch algorithm {
 		case "dfs":
+			recipeFinder.BuildReverseIndex(indexedGraph)
 			// DFS algorithm
 			if multi {
 				response.Algorithm = "dfs"
@@ -220,8 +222,9 @@ func main() {
 			} else {
 				response.Algorithm = "bidirectional"
 				// Placeholder for single-path bidirectional
-				prev := recipeFinder.IndexedBFSBuild(target, indexedGraph) // Using BFS as placeholder
+				prev, nodesVisited := recipeFinder.IndexedBFSBuild(target, indexedGraph) // Using BFS as placeholder
 				response.Tree = recipeFinder.BuildTree(target, prev)
+				response.NodesVisited = nodesVisited
 			}
 			
 		default: // "bfs" or any other value defaults to BFS
@@ -238,8 +241,9 @@ func main() {
 				
 			outer:
 				for len(trees) < desired {
-					infos := recipeFinder.RangePathsIndexed(
+					infos, nodesVisited := recipeFinder.RangePathsIndexed(
 						indexedGraph.NameToID[target], skip, batch, indexedGraph)
+					response.NodesVisited += nodesVisited
 					if len(infos) == 0 {     // search exhausted
 						break
 					}
@@ -277,8 +281,9 @@ func main() {
 				response.Tree = trees
 			} else {
 				response.Algorithm = "bfs"
-				prev := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+				prev, nodesVisited := recipeFinder.IndexedBFSBuild(target, indexedGraph)
 				response.Tree = recipeFinder.BuildTree(target, prev)
+				response.NodesVisited = nodesVisited
 			}
 		}
 		

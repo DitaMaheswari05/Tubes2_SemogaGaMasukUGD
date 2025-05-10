@@ -54,7 +54,7 @@ export default function Index() {
       // Update stats
       setSearchStats({
         time: data.duration_ms,
-        nodesVisited: 0, // API doesn't provide this
+        nodesVisited: data.nodes_visited,
       });
 
       // Format results for display
