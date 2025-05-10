@@ -1,10 +1,11 @@
 "use client"
 
 import { useRef, useEffect } from "react"
-import "./RecipeTree.css"
+// import "./RecipeTree.css"
 
 function RecipeTree({ path, index }) {
   const canvasRef = useRef(null)
+  let nextX = 0 // tracker posisi horizontal untuk leaf node
 
   useEffect(() => {
     if (!path) return
@@ -12,9 +13,8 @@ function RecipeTree({ path, index }) {
     const canvas = canvasRef.current
     const ctx = canvas.getContext("2d")
 
-    const depth = getTreeDepth(path)
-    const width = Math.max(800, depth * 200)
-    const height = Math.max(400, getTreeWidth(path) * 80)
+    const width = Math.max(1200, getTreeWidth(path) * 120)
+    const height = Math.max(800, getTreeDepth(path) * 120)
 
     canvas.width = width
     canvas.height = height
@@ -23,8 +23,9 @@ function RecipeTree({ path, index }) {
     ctx.fillStyle = "#faf9f4"
     ctx.fillRect(0, 0, width, height)
 
-    // buat recipe tree
-    drawRecipeTree(ctx, path, width / 2, 50, width / 4)
+    // gambar pohon dengan layout dinamis
+    nextX = 0
+    drawRecipeTree(ctx, path, 0, 50)
   }, [path])
 
   // function buat dapetin kedalaman node
@@ -40,54 +41,64 @@ function RecipeTree({ path, index }) {
   }
 
   // function buat gambar tree
-  const drawRecipeTree = (ctx, node, x, y, xOffset) => {
-    // gambar kotak elemen
-    drawElementBox(ctx, node.element, x, y)
+  const drawRecipeTree = (ctx, node, depth, y) => {
+    const xSpacing = 120
+    let x
 
-    if (node.ingredients) {
-      const leftChild = node.ingredients[0]
-      const rightChild = node.ingredients[1]
+    if (!node.ingredients) {
+      x = nextX * xSpacing + 100
+      nextX++
+    } else {
+      const leftX = drawRecipeTree(ctx, node.ingredients[0], depth + 1, y + 100)
+      const rightX = drawRecipeTree(ctx, node.ingredients[1], depth + 1, y + 100)
+      x = (leftX + rightX) / 2
 
-      const childY = y + 80
-      const leftX = x - xOffset
-      const rightX = x + xOffset
-
-      // garis ke child
+      // garis ke kiri
       ctx.beginPath()
-      ctx.moveTo(x, y + 50)
-      ctx.lineTo(leftX, childY)
+      ctx.moveTo(x, y + 40)
+      ctx.lineTo(leftX, y + 100)
       ctx.stroke()
 
+      // garis ke kanan
       ctx.beginPath()
-      ctx.moveTo(x, y + 50)
-      ctx.lineTo(rightX, childY)
+      ctx.moveTo(x, y + 40)
+      ctx.lineTo(rightX, y + 100)
       ctx.stroke()
 
       // tanda +
       ctx.font = "20px Arial"
       ctx.fillStyle = "#000"
       ctx.textAlign = "center"
-      ctx.fillText("+", (leftX + rightX) / 2, childY - 10)
-
-      // gambar node child secara rekursif
-      drawRecipeTree(ctx, leftChild, leftX, childY, xOffset / 2)
-      drawRecipeTree(ctx, rightChild, rightX, childY, xOffset / 2)
+      ctx.fillText("+", (leftX + rightX) / 2, y + 60)
     }
+
+    drawElementBox(ctx, node.element, x, y)
+    return x
   }
 
-  // gmbar kotak elemen
+  // gambar kotak elemen
   const drawElementBox = (ctx, element, x, y) => {
-    const boxWidth = 100
-    const boxHeight = 50
+    const boxWidth = 105
+    const boxHeight = 40
 
-    let color = "#f0f0f0" // Default gray
+    // 10 warna berbeda
+    const colorPalette = [
+      "#a8d5a8", "#a8c5d5", "#d5a8a8", "#d5d5d5", "#f4c2c2",
+      "#f0e68c", "#dda0dd", "#add8e6", "#90ee90", "#ffcccb"
+    ]
 
-    if (["Earth", "Water", "Fire", "Air"].includes(element)) {
-      if (element === "Earth") color = "#a8d5a8" // Green
-      if (element === "Water") color = "#a8c5d5" // Blue
-      if (element === "Fire") color = "#d5a8a8" // Red
-      if (element === "Air") color = "#d5d5d5" // Light gray
+    // hash nama elemen ke indeks warna
+    let hash = 0
+    for (let i = 0; i < element.length; i++) {
+      hash = element.charCodeAt(i) + ((hash << 5) - hash)
     }
+    let color = colorPalette[Math.abs(hash) % colorPalette.length]
+
+    // override untuk elemen dasar
+    if (element === "Earth") color = "#228B22"
+    if (element === "Water") color = "#1E90FF"
+    if (element === "Fire") color = "#FF6347"
+    if (element === "Air") color = "#D3D3D3"
 
     // buat kotak elemennya
     ctx.fillStyle = color
@@ -99,7 +110,7 @@ function RecipeTree({ path, index }) {
     ctx.stroke()
 
     // buat nama elemennya
-    ctx.font = "14px Arial"
+    ctx.font = "bold 12px Arial"
     ctx.fillStyle = "#000"
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
