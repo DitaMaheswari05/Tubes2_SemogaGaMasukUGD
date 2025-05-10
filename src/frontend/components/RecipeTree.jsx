@@ -69,7 +69,7 @@ function RecipeTree({ path, index }) {
       ctx.font = "20px Arial"
       ctx.fillStyle = "#000"
       ctx.textAlign = "center"
-      ctx.fillText("+", (leftX + rightX) / 2, y + 90)
+      ctx.fillText("+", (leftX + rightX) / 2, y + 60)
     }
 
     drawElementBox(ctx, node.element, x, y)
@@ -78,7 +78,7 @@ function RecipeTree({ path, index }) {
 
   // gambar kotak elemen
   const drawElementBox = (ctx, element, x, y) => {
-    const boxWidth = 100
+    const boxWidth = 105
     const boxHeight = 40
 
     // 10 warna berbeda
@@ -110,7 +110,7 @@ function RecipeTree({ path, index }) {
     ctx.stroke()
 
     // buat nama elemennya
-    ctx.font = "bold 14px Arial"
+    ctx.font = "bold 12px Arial"
     ctx.fillStyle = "#000"
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
