@@ -8,76 +8,100 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/wiwekaputera/Tubes2_SemogaGaMasukUGD/backend/recipeFinder"
 )
 
+// -----------------------------------------------------------------------------
+// Constants
+// -----------------------------------------------------------------------------
 const (
-    jsonDir  = "json"
-    jsonFile = jsonDir + "/recipe.json"
-    svgDir   = "svgs"
+    jsonDir  = "json"                	// directory for recipe.json & query results
+    jsonFile = jsonDir + "/recipe.json" // full path to recipe.json
+    svgDir   = "svgs"               	// directory for SVG icons for frontend
 )
 
+// -----------------------------------------------------------------------------
+// Command line flags
+// -----------------------------------------------------------------------------
 var (
-	recipeGraph recipeFinder.Graph
-    doScrape = flag.Bool("scrape", false, "rebuild recipe.json by scraping") // kalau -scrape=true, jalankan scraping dulu
-    addr     = flag.String("addr", ":8080", "listen address")                // alamat HTTP server
+    // If -scrape flag is set, run Fandom web-scraper and write new recipe.json
+    doScrape = flag.Bool("scrape", false, "rebuild recipe.json by scraping")
+    // HTTP server address & port
+    addr     = flag.String("addr", ":8080", "listen address")
 )
 
 func main() {
-    flag.Parse() // parse flags: doScrape sama addr
+	flag.Parse() // parse all flags above	
 
-    // 1) Kalau dipanggil dengan flag -scrape, langsung scrape dan tulis ulang recipe.json
-    if *doScrape {
-        catalog, err := recipeFinder.ScrapeAll() // ambil data dari Fandom
-        if err != nil {
-            log.Fatalf("scrape failed: %v", err)
-        }
-        // pastikan folder json/ ada
-        os.MkdirAll(jsonDir, 0755)
-        // jadikan objek Go -> JSON ter-format
-        raw, _ := json.MarshalIndent(catalog, "", "  ")
-        // simpan di disk
-        if err := os.WriteFile(jsonFile, raw, 0644); err != nil {
-            log.Fatal(err)
-        }
-        log.Printf("wrote %s", jsonFile)
-        return
-    }
+	var rawJSON []byte
+	var err error
 
-    // 2) Baca file JSON yang udah ada
-    rawJSON, err := os.ReadFile(jsonFile)
-    if err != nil {
-        log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
-    }
+	// ---------------------------------------------------------------------
+	// 1) Run scraper if requested
+	// ---------------------------------------------------------------------
+	if *doScrape {
+		// Scrape and assign directly to global catalog
+		recipeFinder.GlobalCatalog, err = recipeFinder.ScrapeAll()
+		if err != nil {
+			log.Fatalf("scrape failed: %v", err)
+		}
 
-    // 3) "Unmarshal" JSON → struct Go kita
-    //
-    //    rawJSON adalah byte slice berisi konten file recipe.json,
-    //    misalnya '[{"Tier 1 elements":[{"name":"Mud","recipes":[...]}], ...}]'
-    //
-    //    json.Unmarshal artinya: ambil data JSON mentah (rawJSON)
-    //    lalu konversi ke tipe Go yang kita tentukan (di sini map[string][]Element).
-    //    Hasilnya disimpan di variabel "sections".
-    var catalog recipeFinder.Catalog
-    if err := json.Unmarshal(rawJSON, &catalog); err != nil {
-        // Kalau error, kita fatal: artinya data JSON-nya tidak valid / berbeda dengan definisi struct Element
-        log.Fatalf("invalid JSON: %v", err)
-    }
-	recipeFinder.InitElementTiers(catalog)
+		os.MkdirAll(jsonDir, 0o755)              // ensure directory exists
+		rawJSON, _ = json.MarshalIndent(recipeFinder.GlobalCatalog, "", "  ")
+		if err := os.WriteFile(jsonFile, rawJSON, 0o644); err != nil {
+			log.Fatal(err)
+		}
+		
+		log.Printf("wrote %s", jsonFile)
+	} else {
+		// ---------------------------------------------------------------------
+		// 2) Read existing recipe.json
+		// ---------------------------------------------------------------------
+		rawJSON, err = os.ReadFile(jsonFile)
+		if err != nil {
+			log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
+		}
 
-    // 4) Bangun index byPair: untuk tiap pasangan (A,B) daftar produk yang bisa dibuat
-    // combinationMap := recipeFinder.BuildCombinationMap(catalog)
-	// recipeGraph = recipeFinder.BuildGraphFromCatalog(catalog)
-	indexedGraph := recipeFinder.BuildIndexedGraph(catalog)
-	recipeFinder.GlobalIndexedGraph = indexedGraph
+		// ---------------------------------------------------------------------
+		// 3) Parse JSON → Catalog struct (only if we didn't just scrape)
+		// ---------------------------------------------------------------------
+		if err := json.Unmarshal(rawJSON, &recipeFinder.GlobalCatalog); err != nil {
+			log.Fatalf("invalid JSON: %v", err)
+		}
+	}
 
+	// Sort tiers in catalog - "Starting" first, then numeric tiers in order
+	sort.Slice(recipeFinder.GlobalCatalog.Tiers, func(i, j int) bool {
+		// "Starting" tier always comes first
+		if recipeFinder.GlobalCatalog.Tiers[i].Name == "Starting" {
+			return true
+		}
+		if recipeFinder.GlobalCatalog.Tiers[j].Name == "Starting" {
+			return false
+		}
+		
+		// For numeric tiers, sort by number
+		iNum, _ := strconv.Atoi(recipeFinder.GlobalCatalog.Tiers[i].Name)
+		jNum, _ := strconv.Atoi(recipeFinder.GlobalCatalog.Tiers[j].Name)
+		return iNum < jNum
+	})
 
-    // 5) Endpoint /api/recipes: langsung dump rawJSON-nya (UNTUK SEKARANG)
+	recipeFinder.InitElementTiers(recipeFinder.GlobalCatalog)
+
+    // ---------------------------------------------------------------------
+    // 4) Build indexed graph for fast searches and save globally
+    // ---------------------------------------------------------------------
+    indexedGraph := recipeFinder.BuildIndexedGraph(recipeFinder.GlobalCatalog)
+    recipeFinder.GlobalIndexedGraph = indexedGraph // can be accessed by other packages
+
+    // ---------------------------------------------------------------------
+    // 5) Static endpoint: /api/recipes — send raw catalog to frontend
+    // ---------------------------------------------------------------------
     http.HandleFunc("/api/recipes", func(w http.ResponseWriter, r *http.Request) {
-        // CORS bebas
         w.Header().Set("Access-Control-Allow-Origin", "*")
         if r.Method == http.MethodOptions {
             w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
@@ -87,228 +111,167 @@ func main() {
         w.Write(rawJSON)
     })
 
-    // Get full working directory path
-    wd, err := os.Getwd()
-    if err != nil {
-        log.Fatalf("failed to get working directory: %v", err)
-    }
+    // ---------------------------------------------------------------------
+    // 6) Static file server for SVG icons (/svgs/...)
+    // ---------------------------------------------------------------------
+    wd, _ := os.Getwd()
     log.Printf("Current working directory: %s", wd)
 
-    // Determine SVG path based on working directory
     var svgPath string
     if filepath.Base(wd) == "backend" {
-        // Already in backend dir
         svgPath = svgDir
     } else {
-        // Might be in repo root
         svgPath = filepath.Join("src", "backend", svgDir)
     }
-
-    // Check if the path exists
     if _, err := os.Stat(svgPath); os.IsNotExist(err) {
         log.Fatalf("SVG directory not found at: %s", svgPath)
     }
     log.Printf("Serving SVGs from: %s", svgPath)
-
-    // Serve SVGs with FileServer
     http.Handle("/svgs/", http.StripPrefix("/svgs/", http.FileServer(http.Dir(svgPath))))
 
-    // 6) Endpoint /api/find?target=NamaElemen
-    //    => jalanin BFSBuild (mencari jalur terpendek dari starting elements ke target)
-    //    => terus build tree-nya (rekonstruksi recipe)
-    // In main.go, modify your /api/find handler:
+    // ---------------------------------------------------------------------
+    // 7) Recipe search endpoint: /api/find?target=Name&maxPaths=5&multi=true
+    // ---------------------------------------------------------------------
+    type FindResponse struct {
+        Tree         interface{} `json:"tree"`
+        DurationMs   float64     `json:"duration_ms"`
+        Algorithm    string      `json:"algorithm"`
+        NodesVisited int         `json:"nodes_visited"`
+    }
 
-	http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
-		target := r.URL.Query().Get("target")
-		if target == "" {
-			http.Error(w, "missing ?target=", http.StatusBadRequest)
-			return
-		}
-	
-		// Get maxPaths from query parameter with default fallback
-		maxPaths := int64(5)
-		if maxPathsParam := r.URL.Query().Get("maxPaths"); maxPathsParam != "" {
-			if val, err := strconv.ParseInt(maxPathsParam, 10, 64); err == nil && val > 0 {
-				maxPaths = val
-			}
-		}
-		
-		// Get search mode (multi or single path)
-		multi := true
-		if multiParam := r.URL.Query().Get("multi"); multiParam != "" {
-			multi = multiParam == "true"
-		}
-		
-		// Get algorithm type (bfs, dfs, bidirectional)
-		algorithm := "bfs"  // Default to BFS
-		if algoParam := r.URL.Query().Get("algorithm"); algoParam != "" {
-			algorithm = algoParam
-		}
-	
-		// Create response structure with timing
-		type FindResponse struct {
-			Tree      interface{} `json:"tree"`
-			DurationMs float64    `json:"duration_ms"`
-			Algorithm string      `json:"algorithm"`
-			NodesVisited int        `json:"nodes_visited"`
-		}
-	
-		var response FindResponse
-		startTime := time.Now()
-		
-		// Handle different algorithms
-		switch algorithm {
-		case "dfs":
-			recipeFinder.BuildReverseIndex(indexedGraph)
-			// DFS algorithm
-			if multi {
-				response.Algorithm = "dfs"
-				
-				// Get user-requested recipe count
-				desired := int(maxPaths)
-				
-				// Call the multi-path DFS function
-				recipeSteps, nodes := recipeFinder.RangeDFSPaths(target, desired, indexedGraph)
-				response.NodesVisited = nodes
-				
-				// Convert recipe steps to trees
-				var trees []*recipeFinder.RecipeNode
-				printed := make(map[string]bool) // prevent duplicates
-				
-				for _, step := range recipeSteps {
-					// Convert path to a ProductToIngredients map
-					single := make(recipeFinder.ProductToIngredients)
-					
-					for _, pathStep := range step.Path {
-						if len(pathStep) == 3 {
-							product := pathStep[2]
-							single[product] = recipeFinder.RecipeStep{
-								Combo: recipeFinder.IngredientCombo{
-									A: pathStep[0],
-									B: pathStep[1],
-								},
-							}
-						}
-					}
-					
-					// Build tree from the map
-					tree := recipeFinder.BuildTree(target, single)
-					
-					// Deduplicate using tree JSON representation
-					keyBytes, _ := json.Marshal(tree)
-					if printed[string(keyBytes)] {
-						continue // Skip duplicate trees
-					}
-					printed[string(keyBytes)] = true
-					trees = append(trees, tree)
-					
-					if len(trees) >= desired {
-						break
-					}
-				}
-				
-				response.Tree = trees
-			} else {
-				response.Algorithm = "dfs"
-				recipes, nodes := recipeFinder.DFSBuildTargetToBase(target, indexedGraph)
-				response.NodesVisited = nodes
-				response.Tree = recipeFinder.BuildTree(target, recipes)
-			}
-			
-		case "bidirectional":
-			// Bidirectional search placeholder
-			if multi {
-				response.Algorithm = "bidirectional"
-				// Placeholder for multi-path bidirectional
-				response.Tree = []*recipeFinder.RecipeNode{} // Empty result for now
-			} else {
-				response.Algorithm = "bidirectional"
-				// Placeholder for single-path bidirectional
-				prev, nodesVisited := recipeFinder.IndexedBFSBuild(target, indexedGraph) // Using BFS as placeholder
-				response.Tree = recipeFinder.BuildTree(target, prev)
-				response.NodesVisited = nodesVisited
-			}
-			
-		default: // "bfs" or any other value defaults to BFS
-			if multi {
-				// Multi-path BFS
-				response.Algorithm = "bfs"
-				
-				desired := int(maxPaths)   // user-requested unique recipe count
-				batch := 20                // pull 20 raw paths per round
-				
-				var trees []*recipeFinder.RecipeNode
-				printed := map[string]bool{} // tree-level de-dup
-				skip := 0                    // global path index
-				
-			outer:
-				for len(trees) < desired {
-					infos, nodesVisited := recipeFinder.RangePathsIndexed(
-						indexedGraph.NameToID[target], skip, batch, indexedGraph)
-					response.NodesVisited += nodesVisited
-					if len(infos) == 0 {     // search exhausted
-						break
-					}
-					skip += len(infos)
-					
-					for _, info := range infos {
-						// convert Info -> map -> tree
-						single := make(recipeFinder.ProductToIngredients)
-						
-						for _, step := range info.Path {
-							if len(step) == 3 {
-								single[step[2]] = recipeFinder.RecipeStep{
-									Combo: recipeFinder.IngredientCombo{
-										A: step[0],
-										B: step[1],
-									},
-								}
-							}
-						}
-						
-						tree := recipeFinder.BuildTree(target, single)
-						
-						keyBytes, _ := json.Marshal(tree)   // stable string key
-						if printed[string(keyBytes)] {
-							continue // duplicate visual recipe; skip
-						}
-						printed[string(keyBytes)] = true
-						trees = append(trees, tree)
-						if len(trees) == desired {
-							break outer
-						}
-					}
-				}
-				
-				response.Tree = trees
-			} else {
-				response.Algorithm = "bfs"
-				prev, nodesVisited := recipeFinder.IndexedBFSBuild(target, indexedGraph)
-				response.Tree = recipeFinder.BuildTree(target, prev)
-				response.NodesVisited = nodesVisited
-			}
-		}
-		
-		// Calculate duration
-		response.DurationMs = float64(time.Since(startTime).Microseconds()) / 1000
-		
-		// Dump raw JSON to file
-		rawJSON, err := json.MarshalIndent(response, "", "  ")
-		if err == nil {
-			// Ensure directory exists
-			os.MkdirAll(filepath.Join("json"), 0755)
-			// Write to file
-			err = os.WriteFile(filepath.Join("json", "queryResult.json"), rawJSON, 0644)
-			if err != nil {
-				log.Printf("Failed to write query result: %v", err)
-			}
-		}
-		
-		// Send response to client
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-	})
+    http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
+        // ---------- parameter validation ----------
+        target := r.URL.Query().Get("target")
+        if target == "" {
+            http.Error(w, "missing ?target=", http.StatusBadRequest)
+            return
+        }
 
+        // maxPaths (default 5)
+        maxPaths := int64(5)
+        if v := r.URL.Query().Get("maxPaths"); v != "" {
+            if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+                maxPaths = n
+            }
+        }
+        // multi=true/false
+        multi := true
+        if v := r.URL.Query().Get("multi"); v != "" {
+            multi = v == "true"
+        }
+        // algorithm=bfs|dfs|bidirectional
+        algo := r.URL.Query().Get("algorithm")
+        if algo == "" { algo = "bfs" }
+
+        resp := FindResponse{Algorithm: algo}
+        t0   := time.Now()
+
+        // ---------- choose algorithm ----------
+        switch algo {
+        //-----------------------------------------------------------------
+        case "dfs":
+            recipeFinder.BuildReverseIndex(indexedGraph)
+            if multi {
+                // Get N unique paths (multi DFS)
+                steps, nodes := recipeFinder.RangeDFSPaths(target, int(maxPaths), indexedGraph)
+                resp.NodesVisited = nodes
+                resp.Tree = stepsToTrees(target, steps)
+            } else {
+                // Single path (single DFS)
+                rec, nodes := recipeFinder.DFSBuildTargetToBase(target, indexedGraph)
+                resp.NodesVisited = nodes
+                resp.Tree = recipeFinder.BuildTree(target, rec)
+            }
+
+        //-----------------------------------------------------------------
+        case "bidirectional": // placeholder
+            if multi {
+                resp.Tree = []*recipeFinder.RecipeNode{}
+            } else {
+                prev, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+                resp.NodesVisited = nodes
+                resp.Tree = recipeFinder.BuildTree(target, prev)
+            }
+
+        //-----------------------------------------------------------------
+        default: // bfs
+            if multi {
+                desired := int(maxPaths)
+                batch   := 2 // get 20 paths per iteration
+                printed := map[string]bool{}
+                var trees []*recipeFinder.RecipeNode
+                skip := 0
+                for len(trees) < desired {
+                    infos, nodes := recipeFinder.RangePathsIndexed(indexedGraph.NameToID[target], skip, batch, indexedGraph)
+                    resp.NodesVisited += nodes
+                    if len(infos) == 0 { break }
+                    skip += len(infos)
+                    t := infosToTrees(target, infos, printed)
+                    trees = append(trees, t...)
+                }
+                resp.Tree = trees
+            } else {
+                prev, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+                resp.NodesVisited = nodes
+                resp.Tree = recipeFinder.BuildTree(target, prev)
+            }
+        }
+
+        // ---------- write response ----------
+        resp.DurationMs = float64(time.Since(t0).Microseconds()) / 1000.0
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(resp)
+
+        // save to file for easy checking/debugging
+        raw, _ := json.MarshalIndent(resp, "", "  ")
+        os.MkdirAll(jsonDir, 0o755)
+        _ = os.WriteFile(filepath.Join(jsonDir, "queryResult.json"), raw, 0o644)
+    })
+
+    // ---------------------------------------------------------------------
+    // 8) Run server
+    // ---------------------------------------------------------------------
     log.Printf("listening on %s…", *addr)
     log.Fatal(http.ListenAndServe(*addr, nil))
+}
+
+/* -------------------------------------------------------------------------
+   Helper transform: steps → tree slice (used in multi-DFS/BFS)             */
+func stepsToTrees(target string, steps []recipeFinder.RecipeStep) []*recipeFinder.RecipeNode {
+    var trees []*recipeFinder.RecipeNode
+    printed := map[string]bool{}
+    for _, step := range steps {
+        single := make(recipeFinder.ProductToIngredients)
+        for _, p := range step.Path {
+            if len(p) == 3 {
+                single[p[2]] = recipeFinder.RecipeStep{Combo: recipeFinder.IngredientCombo{A: p[0], B: p[1]}}
+            }
+        }
+        tree := recipeFinder.BuildTree(target, single)
+        key, _ := json.Marshal(tree)
+        if !printed[string(key)] {
+            printed[string(key)] = true
+            trees = append(trees, tree)
+        }
+    }
+    return trees
+}
+
+func infosToTrees(target string, infos []recipeFinder.RecipeStep, printed map[string]bool) []*recipeFinder.RecipeNode {
+    var out []*recipeFinder.RecipeNode
+    for _, info := range infos {
+        single := make(recipeFinder.ProductToIngredients)
+        for _, p := range info.Path {
+            if len(p) == 3 {
+                single[p[2]] = recipeFinder.RecipeStep{Combo: recipeFinder.IngredientCombo{A: p[0], B: p[1]}}
+            }
+        }
+        tree := recipeFinder.BuildTree(target, single)
+        key, _ := json.Marshal(tree)
+        if !printed[string(key)] {
+            printed[string(key)] = true
+            out = append(out, tree)
+        }
+    }
+    return out
 }

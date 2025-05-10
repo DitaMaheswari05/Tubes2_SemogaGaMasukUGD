@@ -1,3 +1,4 @@
+// globals/globals.go
 package recipeFinder
 
 // ==================== BASE ELEMENTS ====================
@@ -20,9 +21,9 @@ type IndexedNeighbor struct {
 }
 
 type IndexedGraph struct {
-    NameToID map[string]int          // Maps element names to their ID
-    IDToName map[int]string          // Reverse mapping for reconstruction
-    Edges    map[int][]IndexedNeighbor // Adjacency list using IDs
+    NameToID map[string]int          	// Maps element names to their ID
+    IDToName map[int]string          	// Reverse mapping for reconstruction
+    Edges    map[int][]IndexedNeighbor 	// Adjacency list using IDs
 }
 
 // ==================== RECIPE TYPES ====================
@@ -45,9 +46,6 @@ type RecipeStep struct {
 }
 
 // ==================== MAPPING TYPES ====================
-// Maps from ingredients to products
-type CombinationMap map[IngredientCombo][]string
-
 // Maps from product to its ingredients (single recipe)
 type ProductToIngredients map[string]RecipeStep
 
@@ -57,3 +55,6 @@ type ProductToMultipleIngredients map[string][]RecipeStep
 // ==================== GLOBALS ====================
 // Global indexed graph accessible throughout the package
 var GlobalIndexedGraph IndexedGraph
+
+// Global variable to store the catalog
+var GlobalCatalog Catalog

@@ -1,28 +1,28 @@
 package recipeFinder
 
-// BuildIndexedGraph membuat representasi graf yang dioptimalkan dari katalog.
-// Fungsi ini mengubah struktur Catalog menjadi IndexedGraph yang lebih efisien
-// dengan menggunakan ID integer untuk mempercepat pencarian dan mengurangi penggunaan memori.
+// BuildIndexedGraph creates an optimized graph representation from the catalog.
+// This function converts the Catalog structure into a more efficient IndexedGraph
+// using integer IDs to speed up searches and reduce memory usage.
 //
-// Proses konversi dilakukan dalam dua tahap:
-// 1. Tahap pertama: Menetapkan ID untuk setiap nama elemen, diutamakan elemen dasar
-// 2. Tahap kedua: Membangun tepi graf yang menghubungkan elemen-elemen berdasarkan resep
+// The conversion is done in two phases:
+// 1. First phase: Assign IDs to each element name, prioritizing base elements
+// 2. Second phase: Build graph edges connecting elements based on recipes
 //
-// Parameter:
-//   - cat: Struktur Catalog yang berisi seluruh data elemen dan resep
+// Parameters:
+//   - cat: Catalog structure containing all element data and recipes
 //
-// Return:
-//   - IndexedGraph: Representasi graf teroptimasi dengan ID integer
+// Returns:
+//   - IndexedGraph: Optimized graph representation with integer IDs
 func BuildIndexedGraph(cat Catalog) IndexedGraph {
-    // Tahap pertama: menetapkan ID untuk semua nama elemen
-    nameToID := make(map[string]int)   // Memetakan nama elemen ke ID integer
-    idToName := make(map[int]string)   // Memetakan ID integer kembali ke nama elemen
+    // First phase: assign IDs to all element names
+    nameToID := make(map[string]int)   // Maps element names to integer IDs
+    idToName := make(map[int]string)   // Maps integer IDs back to element names
     
-    // Mulai menetapkan ID secara berurutan
+    // Start assigning IDs sequentially
     nextID := 0
     
-    // Pastikan elemen dasar (BaseElements) mendapatkan ID terlebih dahulu
-    // Ini penting karena algoritma BFS dan DFS akan memulai dari elemen dasar
+    // Ensure base elements (BaseElements) get IDs first
+    // This is important because BFS and DFS algorithms will start from base elements
     baseIDs := make([]int, len(BaseElements))
     for i, name := range BaseElements {
         nameToID[name] = nextID
@@ -31,19 +31,19 @@ func BuildIndexedGraph(cat Catalog) IndexedGraph {
         nextID++
     }
     
-    // Kemudian tetapkan ID untuk semua elemen lainnya dalam katalog
-    // Kita menelusuri setiap tier dan elemen di dalamnya
+    // Then assign IDs for all other elements in the catalog
+    // We traverse each tier and the elements within it
     for _, tier := range cat.Tiers {
         for _, el := range tier.Elements {
-            // Periksa apakah elemen sudah memiliki ID
+            // Check if element already has an ID
             if _, exists := nameToID[el.Name]; !exists {
                 nameToID[el.Name] = nextID
                 idToName[nextID] = el.Name
                 nextID++
             }
             
-            // Juga tetapkan ID untuk semua nama bahan dalam resep
-            // Ini memastikan semua elemen yang muncul dalam resep memiliki ID
+            // Also assign IDs for all ingredient names in recipes
+            // This ensures all elements appearing in recipes have IDs
             for _, rec := range el.Recipes {
                 for _, ingredient := range rec {
                     if _, exists := nameToID[ingredient]; !exists {
@@ -56,53 +56,53 @@ func BuildIndexedGraph(cat Catalog) IndexedGraph {
         }
     }
     
-    // Tahap kedua: membangun tepi graf berdasarkan resep
-    // Setiap resep (A+B→C) akan ditambahkan sebagai tepi dari A ke B dengan hasil C
-    // dan juga dari B ke A dengan hasil yang sama
+    // Second phase: building graph edges based on recipes
+    // Each recipe (A+B->C) will be added as an edge from A to B with result C
+    // and also from B to A with the same result
     edges := make(map[int][]IndexedNeighbor)
     
     for _, tier := range cat.Tiers {
         for _, el := range tier.Elements {
-            productID := nameToID[el.Name]  // ID dari produk (hasil kombinasi)
+            productID := nameToID[el.Name]  // ID of the product (combination result)
             
             for _, rec := range el.Recipes {
-                // Pastikan resep terdiri dari 2 bahan
+                // Ensure recipe consists of 2 ingredients
                 if len(rec) != 2 {
                     continue
                 }
                 
-                aID := nameToID[rec[0]]  // ID bahan pertama
-                bID := nameToID[rec[1]]  // ID bahan kedua
+                aID := nameToID[rec[0]]  // First ingredient ID
+                bID := nameToID[rec[1]]  // Second ingredient ID
                 
-                // Tambahkan tepi ke dalam graf untuk kedua arah
-                // Karena A+B=C dan B+A=C adalah sama
+                // Add edges to the graph in both directions
+                // Because A+B=C and B+A=C are the same
                 edges[aID] = append(edges[aID], IndexedNeighbor{
-                    PartnerID: bID,        // Bahan kedua
-                    ProductID: productID,  // Produk hasil
+                    PartnerID: bID,        // Second ingredient
+                    ProductID: productID,  // Resulting product
                 })
                 
                 edges[bID] = append(edges[bID], IndexedNeighbor{
-                    PartnerID: aID,        // Bahan pertama
-                    ProductID: productID,  // Produk hasil
+                    PartnerID: aID,        // First ingredient
+                    ProductID: productID,  // Resulting product
                 })
             }
         }
     }
     
-    // Mengembalikan struktur IndexedGraph yang sudah lengkap
+    // Return the complete IndexedGraph structure
     return IndexedGraph{
-        NameToID:  nameToID,  // Pemetaan nama ke ID
-        IDToName:  idToName,  // Pemetaan ID ke nama
-        Edges:     edges,     // Tepi graf dengan ID
+        NameToID:  nameToID,  // Name to ID mapping
+        IDToName:  idToName,  // ID to name mapping
+        Edges:     edges,     // Graph edges with IDs
     }
 }
 
-// GetBaseElementIDs mengembalikan daftar ID integer untuk semua elemen dasar.
-// Fungsi ini berguna untuk mengakses elemen dasar (Air, Earth, Fire, Water)
-// dalam bentuk ID mereka, yang diperlukan untuk algoritma pencarian.
+// GetBaseElementIDs returns a list of integer IDs for all base elements.
+// This function is useful for accessing base elements (Air, Earth, Fire, Water)
+// in their ID form, which is needed for search algorithms.
 //
-// Return:
-//   - []int: Slice berisi ID integer untuk semua elemen dasar
+// Returns:
+//   - []int: Slice containing integer IDs for all base elements
 func (g *IndexedGraph) GetBaseElementIDs() []int {
     ids := make([]int, len(BaseElements))
     for i, name := range BaseElements {
