@@ -168,7 +168,8 @@ func main() {
 				desired := int(maxPaths)
 				
 				// Call the multi-path DFS function
-				recipeSteps := recipeFinder.RangeDFSPaths(target, desired, indexedGraph)
+				recipeSteps, nodes := recipeFinder.RangeDFSPaths(target, desired, indexedGraph)
+				response.NodesVisited = nodes
 				
 				// Convert recipe steps to trees
 				var trees []*recipeFinder.RecipeNode
@@ -209,7 +210,8 @@ func main() {
 				response.Tree = trees
 			} else {
 				response.Algorithm = "dfs"
-				recipes := recipeFinder.DFSBuildTargetToBase(target, indexedGraph)
+				recipes, nodes := recipeFinder.DFSBuildTargetToBase(target, indexedGraph)
+				response.NodesVisited = nodes
 				response.Tree = recipeFinder.BuildTree(target, recipes)
 			}
 			
