@@ -236,7 +236,7 @@ func main() {
 }
 
 /* -------------------------------------------------------------------------
-   Helper transform: steps → tree slice (used in multi-DFS/BFS)             */
+   Helper transform: steps -> tree slice (used in multi-DFS/BFS)             */
 func stepsToTrees(target string, steps []recipeFinder.RecipeStep) []*recipeFinder.RecipeNode {
     var trees []*recipeFinder.RecipeNode
     printed := map[string]bool{}

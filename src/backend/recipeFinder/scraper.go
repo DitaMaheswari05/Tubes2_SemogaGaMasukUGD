@@ -60,12 +60,12 @@ func ScrapeAll() (Catalog, error) {
 
 	// Find all h3 headers which divide elements into tiers
 	doc.Find("h3").Each(func(_ int, hdr *goquery.Selection) {
-    	// Extract tier title from headline span
+		// Extract tier title from headline span	
 		rawTitle := hdr.Find("span.mw-headline").Text()
 		if rawTitle == "" {
 			return // Skip headers without titles
 		}
-    
+
 		// Find the first table after this header
 		// This table contains all elements in this tier
 		tbl := hdr.Next()

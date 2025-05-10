@@ -52,60 +52,60 @@ import (
 // }
 
 func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredients, int) {
-    targetID := graph.NameToID[targetName]
-    
-    queue := list.New()
-    seen := make(map[int]bool)
-    
-    for _, baseName := range BaseElements {
-        baseID := graph.NameToID[baseName]
-        queue.PushBack(baseID)
-        seen[baseID] = true
-    }
-    
-    // Track parents using integer IDs
-    prevIDs := make(map[int]struct{ParentID, PartnerID int})
+	targetID := graph.NameToID[targetName]
+
+	queue := list.New()
+	seen := make(map[int]bool)
+
+	for _, baseName := range BaseElements {
+		baseID := graph.NameToID[baseName]
+		queue.PushBack(baseID)
+		seen[baseID] = true
+	}
+
+	// Track parents using integer IDs
+	prevIDs := make(map[int]struct{ParentID, PartnerID int})
 	nodes := 0
-    for queue.Len() > 0 {
+	for queue.Len() > 0 {
 		curID := queue.Remove(queue.Front()).(int)
 		nodes++
 		
-        if curID == targetID {
-            break
-        }
-        
-        for _, neighbor := range graph.Edges[curID] {
-            partnerID := neighbor.PartnerID
-            productID := neighbor.ProductID
-            
-            if seen[partnerID] && !seen[productID] {
-                seen[productID] = true
-                prevIDs[productID] = struct{ParentID, PartnerID int}{
-                    ParentID:  curID,
-                    PartnerID: partnerID,
-                }
-                queue.PushBack(productID)
-            }
-        }
-    }
-    
-    // Convert integer results to ProductToIngredients
-    recipes := make(ProductToIngredients)
-    for productID, info := range prevIDs {
-        productName := graph.IDToName[productID]
-        parentName := graph.IDToName[info.ParentID]
-        partnerName := graph.IDToName[info.PartnerID]
-        
-        recipes[productName] = RecipeStep{
-            Combo: IngredientCombo{
-                A: parentName,
-                B: partnerName,
-            },
-            // Path is nil here since we're not tracking full paths in this function
-        }
-    }
-    
-    return recipes, nodes
+		if curID == targetID {
+			break
+		}
+		
+		for _, neighbor := range graph.Edges[curID] {
+			partnerID := neighbor.PartnerID
+			productID := neighbor.ProductID
+			
+			if seen[partnerID] && !seen[productID] {
+				seen[productID] = true
+				prevIDs[productID] = struct{ParentID, PartnerID int}{
+					ParentID:  curID,
+					PartnerID: partnerID,
+				}
+				queue.PushBack(productID)
+			}
+		}
+	}
+
+	// Convert integer results to ProductToIngredients
+	recipes := make(ProductToIngredients)
+	for productID, info := range prevIDs {
+		productName := graph.IDToName[productID]
+		parentName := graph.IDToName[info.ParentID]
+		partnerName := graph.IDToName[info.PartnerID]
+		
+		recipes[productName] = RecipeStep{
+			Combo: IngredientCombo{
+				A: parentName,
+				B: partnerName,
+			},
+			// Path is nil here since we're not tracking full paths in this function
+		}
+	}
+
+	return recipes, nodes
 }
 
 /* -------------------------------------------------------------------------

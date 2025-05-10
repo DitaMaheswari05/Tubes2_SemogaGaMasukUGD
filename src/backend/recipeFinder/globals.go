@@ -8,41 +8,41 @@ var BaseElements = []string{"Air", "Earth", "Fire", "Water"}
 // ==================== GRAPH TYPES ====================
 // Regular graph representations
 type Neighbor struct {
-    Partner string
-    Product string
+	Partner string
+	Product string
 }
 
 type Graph map[string][]Neighbor
 
 // Optimized indexed graph for faster lookups
 type IndexedNeighbor struct {
-    PartnerID int
-    ProductID int
+	PartnerID int
+	ProductID int
 }
 
 type IndexedGraph struct {
-    NameToID map[string]int          	// Maps element names to their ID
-    IDToName map[int]string          	// Reverse mapping for reconstruction
-    Edges    map[int][]IndexedNeighbor 	// Adjacency list using IDs
+	NameToID map[string]int          	// Maps element names to their ID
+	IDToName map[int]string          	// Reverse mapping for reconstruction
+	Edges    map[int][]IndexedNeighbor 	// Adjacency list using IDs
 }
 
 // ==================== RECIPE TYPES ====================
 // Ingredient pair
 type IngredientCombo struct {
-    A string `json:"a"`
-    B string `json:"b"`
+	A string `json:"a"`
+	B string `json:"b"`
 }
 
 // Recipe info with parent/partner format
 type Info struct {
-    Parent, Partner string
-    Path            [][]string
+	Parent, Partner string
+	Path            [][]string
 }
 
 // Recipe step using IngredientCombo
 type RecipeStep struct {
-    Combo IngredientCombo `json:"combo"`          // the two ingredients
-    Path  [][]string      `json:"path,omitempty"` // full sequence: each is [parent,partner,product]
+	Combo IngredientCombo `json:"combo"`          // the two ingredients
+	Path  [][]string      `json:"path,omitempty"` // full sequence: each is [parent,partner,product]
 }
 
 // ==================== MAPPING TYPES ====================

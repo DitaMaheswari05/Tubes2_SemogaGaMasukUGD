@@ -5,33 +5,33 @@ package recipeFinder
 // - Children: daftar subtree resep bahan-bahannya.
 //   kalau leaf (elemen dasar), Children bisa kosong atau nil.
 type RecipeNode struct {
-	Name     string        `json:"name"`
-	Children []*RecipeNode `json:"children,omitempty"`
+	Name     string			`json:"name"`
+	Children []*RecipeNode	`json:"children,omitempty"`
 }
 
 func BuildTrees(target string, pathPrev map[string][]RecipeStep) []*RecipeNode {
-    var trees []*RecipeNode
+	var trees []*RecipeNode
 
-    for _, recipeStep := range pathPrev[target] {
-        // Use only the steps from this specific path to build prev
-        prev := make(ProductToIngredients)
-        for _, step := range recipeStep.Path {
-            if len(step) == 3 {
-                product := step[2]
-                prev[product] = RecipeStep{
-                    Combo: IngredientCombo{
-                        A: step[0],
-                        B: step[1],
-                    },
-                }
-            }
-        }
+	for _, recipeStep := range pathPrev[target] {
+		// Use only the steps from this specific path to build prev
+		prev := make(ProductToIngredients)
+		for _, step := range recipeStep.Path {
+			if len(step) == 3 {
+				product := step[2]
+				prev[product] = RecipeStep{
+					Combo: IngredientCombo{
+						A: step[0],
+						B: step[1],
+					},
+				}
+			}
+		}
 
-        tree := BuildTree(target, prev)
-        trees = append(trees, tree)
-    }
+		tree := BuildTree(target, prev)
+		trees = append(trees, tree)
+	}
 
-    return trees
+	return trees
 }
 
 func isBaseElement(name string) bool {
