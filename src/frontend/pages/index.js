@@ -5,6 +5,27 @@ import Head from "next/head";
 import Link from "next/link";
 import SearchForm from "../components/SearchForm";
 import RecipeTreeText from "../components/RecipeTreeText";
+import RecipeTree from "../components/RecipeTree";
+
+
+// tambahan function buat convert tree
+const convertTree = (node) => {
+  if (!node) return null;
+
+  const newNode = {
+    element: node.name,
+  };
+
+  if (node.children && node.children.length === 2) {
+    newNode.ingredients = [
+      convertTree(node.children[0]),
+      convertTree(node.children[1]),
+    ];
+  }
+
+  return newNode;
+};
+
 
 export default function Index() {
   const [algorithm, setAlgorithm] = useState("bfs");
@@ -30,6 +51,7 @@ export default function Index() {
         setAvailableElements([]);
       });
   }, []);
+
 
   const handleSearch = async () => {
     if (!targetElement) return;
@@ -138,8 +160,11 @@ export default function Index() {
                   </h2>
                   {results.map((tree, index) => (
                     <div key={index} className="recipe-tree">
-                      <h3>Recipe {index + 1}</h3>
-                      <RecipeTreeText node={tree} />
+                      {/* <h3>Recipe {index + 1}</h3> */}
+                      <div style={{ display: "flex", flexDirection: "row", gap: "0px", alignItems: "flex-start" }}>
+                        {/* <RecipeTreeText node={tree} /> */}
+                        <RecipeTree path={convertTree(tree)} index={index} />
+                      </div>
                     </div>
                   ))}
                 </div>
