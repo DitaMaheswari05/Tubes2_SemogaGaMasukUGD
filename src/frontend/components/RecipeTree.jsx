@@ -66,7 +66,7 @@ function RecipeTree({ path, index }) {
       ctx.font = "20px Arial"
       ctx.fillStyle = "#000"
       ctx.textAlign = "center"
-      ctx.fillText("+", (leftX + rightX) / 2, y + 90)
+      ctx.fillText("+", (leftX + rightX) / 2, y + 60)
     }
 
     drawElementBox(ctx, node.element, x, y)
