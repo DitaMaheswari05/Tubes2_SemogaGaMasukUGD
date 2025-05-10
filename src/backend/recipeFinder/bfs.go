@@ -110,71 +110,117 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 
 /* -------------------------------------------------------------------------
    2.  Jalur ke‑(skip+1) (distinct)                                          */
-func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
-	type state struct {
-		elem  int
-		path  [][]int // sequence of [a,b,product]
-		depth int
-	}
-	type edge struct{ PartnerID, ProductID int }
+   func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
+    type state struct {
+        elem  int
+        path  [][]int
+        depth int
+    }
+    type edge struct{ PartnerID, ProductID int }
 
-	reachable := make(map[int]bool)
-	waiting   := make(map[int][]edge)
-	seenPath  := make(map[string]bool)
+    reachable := make(map[int]bool)
+    waiting := make(map[int][]edge)
+    seenPath := make(map[string]bool)
 
-	q := list.New()
-	for _, b := range BaseElements {
-		id := g.NameToID[b]
-		reachable[id] = true
-		q.PushBack(state{elem: id})
-	}
+    q := list.New()
+    for _, b := range BaseElements {
+        id := g.NameToID[b]
+        reachable[id] = true
+        q.PushBack(state{elem: id, depth: 0})
+    }
 
-	nodes, hits := 0, 0
-	const maxDepth = 40
+    nodes, hits := 0, 0
+    const maxDepth = 20       // Reduced from 40 to 20
+    const maxQueueSize = 5000 // Limit queue size
 
-	enqueue := func(a, b, c int, cur [][]int, d int) {
-		np := append(append([][]int(nil), cur...), []int{min(a, b), max(a, b), c})
-		sig := canonicalHash(np)
-		if seenPath[sig] {
-			return
-		}
-		seenPath[sig] = true
-		q.PushBack(state{elem: c, path: np, depth: d + 1})
-	}
+    enqueue := func(a, b, c int, cur [][]int, d int) {
+        // Skip if queue is getting too large
+        if q.Len() >= maxQueueSize {
+            return
+        }
+        
+        // Skip if depth is already high
+        if d >= maxDepth {
+            return
+        }
+        
+        // Create new path with minimal copying
+        np := make([][]int, len(cur)+1)
+        copy(np, cur)
+        np[len(cur)] = []int{min(a, b), max(a, b), c}
+        
+        // Check for duplicates
+        sig := canonicalHash(np)
+        if seenPath[sig] {
+            return
+        }
+        seenPath[sig] = true
+        
+        q.PushBack(state{elem: c, path: np, depth: d + 1})
+    }
 
-	for q.Len() > 0 {
-		st := q.Remove(q.Front()).(state)
-		nodes++
-		if st.depth > maxDepth {
-			continue
-		}
-		if st.elem == targetID {
-			if hits == skip {
-				return buildRecipeStepFromPath(st.path, targetID, g), nodes
-			}
-			hits++
-			continue
-		}
+    for q.Len() > 0 {
+        st := q.Remove(q.Front()).(state)
+        nodes++
+        
+        if st.depth > maxDepth {
+            continue
+        }
+        
+        if st.elem == targetID {
+            if hits == skip {
+                // Free memory before return
+                seenPath = nil
+                waiting = nil
+                return buildRecipeStepFromPath(st.path, targetID, g), nodes
+            }
+            hits++
+            continue
+        }
 
-		for _, r := range g.Edges[st.elem] {
-			if reachable[r.PartnerID] {
-				enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
-			} else {
-				waiting[r.PartnerID] = append(waiting[r.PartnerID], edge{
-					PartnerID: st.elem, ProductID: r.ProductID})
-			}
-		}
-		if lst, ok := waiting[st.elem]; ok {
-			for _, r := range lst {
-				if reachable[r.PartnerID] {
-					enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
-				}
-			}
-			delete(waiting, st.elem)
-		}
-		reachable[st.elem] = true
-	}
-	return RecipeStep{}, nodes
+        // Memory safety check - if too many paths are being processed
+        // don't add more unless they're very promising
+        highMemoryPressure := q.Len() > maxQueueSize/2
+        
+        for _, r := range g.Edges[st.elem] {
+            // During high memory pressure, prioritize only certain paths
+            if highMemoryPressure {
+                // Skip if this would create a very long path
+                if st.depth > 10 {
+                    continue
+                }
+            }
+            
+            if reachable[r.PartnerID] {
+                enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
+            } else {
+                // Only track waiting reactions if we're not under pressure
+                if !highMemoryPressure {
+                    waiting[r.PartnerID] = append(waiting[r.PartnerID], edge{
+                        PartnerID: st.elem, ProductID: r.ProductID})
+                }
+            }
+        }
+        
+        // Free memory by dropping the path once processed
+        st.path = nil
+        
+        // Process waiting reactions only if memory pressure isn't high
+        if !highMemoryPressure {
+            if lst, ok := waiting[st.elem]; ok {
+                for _, r := range lst {
+                    if reachable[r.PartnerID] {
+                        enqueue(st.elem, r.PartnerID, r.ProductID, st.path, st.depth)
+                    }
+                }
+                delete(waiting, st.elem)
+            }
+        }
+        
+        reachable[st.elem] = true
+    }
+    
+    return RecipeStep{}, nodes
 }
 
 /* -------------------------------------------------------------------------

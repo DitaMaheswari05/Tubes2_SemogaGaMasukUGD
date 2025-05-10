@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import Head from "next/head";
 
@@ -13,6 +13,34 @@ export default function RecipesPage() {
   const [catalog, setCatalog] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const elementRefs = useRef({});
+
+  const handleSearch = (e) => {
+    setSearchTerm(e.target.value);
+
+    // Find the first matching element
+    if (e.target.value.trim()) {
+      const searchLower = e.target.value.toLowerCase();
+
+      // Look through all tiers and elements
+      for (const tier of tiersList) {
+        for (const element of tier.elements || []) {
+          if (element.name.toLowerCase().includes(searchLower)) {
+            // We found a match, scroll to it
+            const refKey = `element-${element.name}`;
+            if (elementRefs.current[refKey]) {
+              elementRefs.current[refKey].scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              });
+              return; // Stop after finding first match
+            }
+          }
+        }
+      }
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -73,14 +101,13 @@ export default function RecipesPage() {
 
   // Build name→svg map - adapt to the actual structure of your data
   const nameMap = {};
-  
+
   // Check which property contains the tiers data
   const tiersData = catalog.tiers || catalog;
-  
+
   // Handle the case where the response is an array directly
-  const tiersList = Array.isArray(tiersData) ? tiersData : 
-                   Array.isArray(catalog) ? catalog : [];
-  
+  const tiersList = Array.isArray(tiersData) ? tiersData : Array.isArray(catalog) ? catalog : [];
+
   // Populate the nameMap
   tiersList.forEach((tier) => {
     const elements = tier.elements || [];
@@ -91,30 +118,88 @@ export default function RecipesPage() {
     });
   });
 
+  const getElementTier = (elementName) => {
+    // Handle base elements (Air, Earth, Fire, Water)
+    if (["Air", "Earth", "Fire", "Water"].includes(elementName)) {
+      return "0";
+    }
+
+    // Search through all tiers to find this element
+    for (let i = 0; i < tiersList.length; i++) {
+      const tier = tiersList[i];
+      const found = (tier.elements || []).find((el) => el.name === elementName);
+
+      if (found) {
+        return tier.Name || tier.name || (i + 1).toString();
+      }
+    }
+
+    return "?"; // Unknown tier
+  };
+
   return (
     <>
       <Head>
         <title>Little Alchemy 2 Elements Catalog</title>
         <meta name="description" content="Complete catalog of Little Alchemy 2 elements and recipes" />
       </Head>
-      
+
       <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
         <h1 style={{ textAlign: "center" }}>Little Alchemy 2 Elements</h1>
 
-        {/* Nav back to finder */}
-        <Link href="/">
-          <button style={{ 
-            marginBottom: 16, 
-            padding: "8px 16px",
-            backgroundColor: "#1a7dc5",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer"
+        {/* Navigation bar - sticky at the top */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            backgroundColor: "white",
+            padding: "15px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            zIndex: 100,
+            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            marginBottom: 20,
           }}>
-            Go to Recipe Finder
-          </button>
-        </Link>
+          {/* Nav back to finder */}
+          <Link href="/">
+            <button
+              style={{
+                height: "42px",
+                padding: "0 16px",
+                backgroundColor: "#1a7dc5",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "16px",
+                fontWeight: 500,
+              }}>
+              Go to Recipe Finder
+            </button>
+          </Link>
+
+          {/* Search box */}
+          <div style={{ flexGrow: 1, marginLeft: 20 }}>
+            <input
+              type="text"
+              placeholder="Search for an element..."
+              value={searchTerm}
+              onChange={handleSearch}
+              style={{
+                height: "42px",
+                padding: "0 16px",
+                margin: "0 16px",
+                width: "80%",
+                maxWidth: "300px",
+                borderRadius: "4px",
+                border: "2px solid #1a7dc5",
+                fontSize: "16px",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+        </div>
 
         {tiersList.map((tier, index) => (
           <section key={tier.Name || tier.name || `tier-${index}`}>
@@ -141,45 +226,74 @@ export default function RecipesPage() {
                 </tr>
               </thead>
               <tbody>
-                {(tier.elements || []).map((el, elementIndex) => (
-                  <tr key={el.name || `element-${elementIndex}`}>
-                    <td style={cell}>
-                      <div style={{ display: "flex", alignItems: "center" }}>
-                        {el.local_svg_path && (
-                          <img
-                            src={`/api/svgs/${el.local_svg_path}`}
-                            alt={el.name}
-                            width={40}
-                            height={40}
-                            style={{ marginRight: 10 }}
-                          />
-                        )}
-                        {el.name}
-                      </div>
-                    </td>
-                    <td style={{ ...cell, whiteSpace: "nowrap" }}>
-                      {(el.recipes || []).map((pair, recipeIndex) => (
-                        <div key={recipeIndex} style={{ marginBottom: 4 }}>
-                          {pair.map((name, nameIndex) => (
-                            <span key={nameIndex}>
-                              {nameMap[name] && (
-                                <img
-                                  src={`/api/svgs/${nameMap[name]}`}
-                                  alt={name}
-                                  width={24}
-                                  height={24}
-                                  style={{ marginRight: 4 }}
-                                />
-                              )}
-                              {name}
-                              {nameIndex === 0 ? " + " : ""}
-                            </span>
-                          ))}
+                {(tier.elements || []).map((el, elementIndex) => {
+                  // Create a unique ref key for this element
+                  const refKey = `element-${el.name}`;
+
+                  // Check if this element matches the search
+                  const isMatch = searchTerm && el.name.toLowerCase().includes(searchTerm.toLowerCase());
+
+                  // Get the tier name for display
+                  const tierName = tier.Name || tier.name || `Tier ${index + 1}`;
+
+                  return (
+                    <tr
+                      key={el.name || `element-${elementIndex}`}
+                      ref={(el) => (elementRefs.current[refKey] = el)}
+                      style={isMatch ? { backgroundColor: "#fff3cd" } : {}}>
+                      <td style={cell}>
+                        <div style={{ display: "flex", alignItems: "center" }}>
+                          {el.local_svg_path && (
+                            <img
+                              src={`/api/svgs/${el.local_svg_path}`}
+                              alt={el.name}
+                              width={40}
+                              height={40}
+                              style={{ marginRight: 10 }}
+                            />
+                          )}
+                          <div>
+                            <div>{el.name}</div>
+                            <div
+                              style={{
+                                fontSize: "0.8em",
+                                color: "#666",
+                                backgroundColor: "#f0f0f0",
+                                display: "inline-block",
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                marginTop: "2px",
+                              }}>
+                              {tierName}
+                            </div>
+                          </div>
                         </div>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td style={{ ...cell, whiteSpace: "nowrap" }}>
+                        {(el.recipes || []).map((pair, recipeIndex) => (
+                          <div key={recipeIndex} style={{ marginBottom: 4 }}>
+                            {pair.map((name, nameIndex) => (
+                              <span key={nameIndex}>
+                                {nameMap[name] && (
+                                  <img
+                                    src={`/api/svgs/${nameMap[name]}`}
+                                    alt={name}
+                                    width={24}
+                                    height={24}
+                                    style={{ marginRight: 4 }}
+                                  />
+                                )}
+                                {name}
+                                <span style={{ color: "#888", fontSize: "0.85em" }}> ({getElementTier(name)})</span>
+                                {nameIndex === 0 ? " + " : ""}
+                              </span>
+                            ))}
+                          </div>
+                        ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </section>
