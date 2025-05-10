@@ -16,7 +16,7 @@ export default function RecipesPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch("http://localhost:8080/api/recipes")
+    fetch("/api/recipes")
       .then((r) => {
         if (!r.ok) {
           throw new Error(`HTTP error! status: ${r.status}`);
@@ -147,7 +147,7 @@ export default function RecipesPage() {
                       <div style={{ display: "flex", alignItems: "center" }}>
                         {el.local_svg_path && (
                           <img
-                            src={`http://localhost:8080/svgs/${el.local_svg_path}`}
+                            src={`/api/svgs/${el.local_svg_path}`}
                             alt={el.name}
                             width={40}
                             height={40}
@@ -164,7 +164,7 @@ export default function RecipesPage() {
                             <span key={nameIndex}>
                               {nameMap[name] && (
                                 <img
-                                  src={`http://localhost:8080/svgs/${nameMap[name]}`}
+                                  src={`/api/svgs/${nameMap[name]}`}
                                   alt={name}
                                   width={24}
                                   height={24}
