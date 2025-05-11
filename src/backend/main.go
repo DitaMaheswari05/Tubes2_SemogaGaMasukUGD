@@ -133,11 +133,12 @@ func main() {
     // 7) Recipe search endpoint: /api/find?target=Name&maxPaths=5&multi=true
     // ---------------------------------------------------------------------
     type FindResponse struct {
-        Tree         interface{} `json:"tree"`
-        DurationMs   float64     `json:"duration_ms"`
-        Algorithm    string      `json:"algorithm"`
-        NodesVisited int         `json:"nodes_visited"`
-    }
+		Tree         interface{}   `json:"tree"`
+		DurationMs   float64       `json:"duration_ms"`
+		Algorithm    string        `json:"algorithm"`
+		NodesVisited int           `json:"nodes_visited"`
+		SearchSteps  interface{}   `json:"search_steps,omitempty"` // Use interface{} for flexibility
+	}
 
     http.HandleFunc("/api/find", func(w http.ResponseWriter, r *http.Request) {
         // ---------- parameter validation ----------
@@ -188,7 +189,7 @@ func main() {
             if multi {
                 resp.Tree = []*recipeFinder.RecipeNode{}
             } else {
-                prev, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+                prev, _, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
                 resp.NodesVisited = nodes
                 resp.Tree = recipeFinder.BuildTree(target, prev)
             }
@@ -211,13 +212,22 @@ func main() {
                 }
                 resp.Tree = trees
             } else {
-                prev, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+                prev, searchSteps, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
                 resp.NodesVisited = nodes
                 resp.Tree = recipeFinder.BuildTree(target, prev)
+				resp.SearchSteps = searchSteps
+
+				// Add this before sending response
+				log.Printf("SearchSteps length: %d", len(searchSteps))
+				if len(searchSteps) > 0 {
+					stepJSON, _ := json.Marshal(searchSteps[0])
+					log.Printf("First step sample: %s", string(stepJSON))
+				}
             }
         }
 
         // ---------- write response ----------
+		
         resp.DurationMs = float64(time.Since(t0).Microseconds()) / 1000.0
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(resp)

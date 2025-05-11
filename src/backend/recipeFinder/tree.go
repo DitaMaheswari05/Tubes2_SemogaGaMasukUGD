@@ -76,7 +76,7 @@ func buildTreeRec(
 	}
 
 	// 3. fallback sekali saja ----------------------------------------------
-	if fb, _ := IndexedBFSBuild(name, GlobalIndexedGraph); len(fb) > 0 {
+	if fb, _, _ := IndexedBFSBuild(name, GlobalIndexedGraph); len(fb) > 0 {
 		if step, ok := fb[name]; ok {
 			node.Children = []*RecipeNode{
 				buildTreeRec(step.Combo.A, fb, visited, depth+1),

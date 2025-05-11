@@ -6,6 +6,7 @@ import Link from "next/link";
 import SearchForm from "../components/SearchForm";
 import RecipeTreeText from "../components/RecipeTreeText";
 import RecipeTree from "../components/RecipeTree";
+import LiveSearchVisualizer from "../components/LiveSearchVisualizer";
 
 // tambahan function buat convert tree
 const convertTree = (node) => {
@@ -16,10 +17,7 @@ const convertTree = (node) => {
   };
 
   if (node.children && node.children.length === 2) {
-    newNode.ingredients = [
-      convertTree(node.children[0]),
-      convertTree(node.children[1]),
-    ];
+    newNode.ingredients = [convertTree(node.children[0]), convertTree(node.children[1])];
   }
 
   return newNode;
@@ -37,6 +35,7 @@ export default function Index() {
   const [availableElements, setAvailableElements] = useState([]);
   const [error, setError] = useState(null);
   const [response, setResponse] = useState(null);
+  const [viewMode, setViewMode] = useState("result"); // 'result' or 'process'
 
   useEffect(() => {
     fetch("/api/elements")
@@ -146,24 +145,66 @@ export default function Index() {
                 </p>
               </div>
 
-              {results.length > 0 ? (
-                <div className="recipe-trees">
-                  <h2>
-                    Found {results.length} recipe{results.length !== 1 ? "s" : ""} for {submittedTarget} 
-                    {/* menghindari nama elemen langsung berubah saat diinput */}
-                  </h2>
-                  {results.map((tree, index) => (
-                    <div key={index} className="recipe-tree">
-                      <div style={{ display: "flex", flexDirection: "row", gap: "0px", alignItems: "flex-start" }}>
-                        <RecipeTree path={convertTree(tree)} index={index} />
+              {/* Add view mode toggle buttons */}
+              {response && response.search_steps && (
+                <div
+                  className="view-toggle"
+                  style={{
+                    marginBottom: "20px",
+                    display: "flex",
+                    justifyContent: "center",
+                  }}>
+                  <button
+                    onClick={() => setViewMode("result")}
+                    style={{
+                      backgroundColor: viewMode === "result" ? "#1a7dc5" : "#e0e0e0",
+                      color: viewMode === "result" ? "white" : "black",
+                      padding: "8px 16px",
+                      border: "none",
+                      borderRadius: "4px 0 0 4px",
+                      cursor: "pointer",
+                    }}>
+                    Final Results
+                  </button>
+                  <button
+                    onClick={() => setViewMode("process")}
+                    style={{
+                      backgroundColor: viewMode === "process" ? "#1a7dc5" : "#e0e0e0",
+                      color: viewMode === "process" ? "white" : "black",
+                      padding: "8px 16px",
+                      border: "none",
+                      borderRadius: "0 4px 4px 0",
+                      cursor: "pointer",
+                    }}>
+                    Search Process
+                  </button>
+                </div>
+              )}
+
+              {/* Choose which view to display */}
+              {viewMode === "result" || !response?.search_steps ? (
+                // Standard results view
+                results.length > 0 ? (
+                  <div className="recipe-trees">
+                    <h2>
+                      Found {results.length} recipe{results.length !== 1 ? "s" : ""} for {submittedTarget}
+                    </h2>
+                    {results.map((tree, index) => (
+                      <div key={index} className="recipe-tree">
+                        <div style={{ display: "flex", flexDirection: "row", gap: "0px", alignItems: "flex-start" }}>
+                          <RecipeTree path={convertTree(tree)} index={index} />
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="no-results">
+                    <p>No recipes found for {submittedTarget}</p>
+                  </div>
+                )
               ) : (
-                <div className="no-results">
-                  <p>No recipes found for {submittedTarget}</p>
-                </div>
+                // Search process visualization view
+                <LiveSearchVisualizer searchSteps={response.search_steps} targetElement={submittedTarget} />
               )}
             </div>
           )}
