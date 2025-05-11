@@ -178,11 +178,6 @@ func DFSBuildTargetToBase(target string, g IndexedGraph) (ProductToIngredients, 
 	return recipes, nodes
 }
 
-/* -------------------------------------------------------------------------
-   Multi-path DFS (iterative)
-   This algorithm finds multiple unique paths from target to base elements
-   using an iterative stack-based approach to avoid recursion issues.     */
-
 // hashPath generates a hash signature for a specific recipe path.
 // This is used to deduplicate paths that are functionally equivalent.
 // Parameters:
