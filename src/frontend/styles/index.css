@@ -116,3 +116,29 @@ body {
   width: 32px;
   height: 32px;
 }
+
+.header-title {
+  margin: 0;
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  line-height: 60px;
+}
+
+.scrape-button {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.scrape-button-inner {
+  cursor: pointer;
+  color: #003399;
+  background-color: #f0f0f0;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: bold;
+}

@@ -28,7 +28,7 @@ export default function Index() {
   const [multiMode, setMultiMode] = useState(false);
   const [maxRecipes, setMaxRecipes] = useState(5);
   const [targetElement, setTargetElement] = useState("");
-  const [submittedTarget, setSubmittedTarget] = useState(""); // ✨ Langkah 1
+  const [submittedTarget, setSubmittedTarget] = useState("");
   const [results, setResults] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [searchStats, setSearchStats] = useState({ time: 0, nodesVisited: 0 });
@@ -104,6 +104,14 @@ export default function Index() {
             <Link href="/recipes" className="nav-link">
               <img src="/icons/catalog.png" alt="Catalog" className="nav-icon" width="24" height="24" />
             </Link>
+          </div>
+          <div className="scrape-button">
+          <button
+              onClick={() => alert("Scraping all recipes...")}
+              className="scrape-button-inner"
+            >
+              Scrape All
+            </button>
           </div>
         </header>
 
