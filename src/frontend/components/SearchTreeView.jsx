@@ -46,8 +46,8 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
     const baseElements = ["Air", "Earth", "Fire", "Water"];
 
     // Place base elements at the top in a row
-    const topY = 50;
-    const width = 1200;
+    const topY = 70;
+    const width = 900;
     const spacing = width / (baseElements.length + 1);
 
     baseElements.forEach((el, i) => {
@@ -58,6 +58,10 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
       layerMap[el] = 0;
     });
 
+    // Track nodes in each layer for better sizing
+    const layerCounts = [baseElements.length];
+    let maxNodesPerLayer = baseElements.length;
+
     // Breadth-first layout for other elements
     const queue = [...baseElements];
     const visited = new Set(baseElements);
@@ -67,7 +71,6 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
       const levelSize = queue.length;
       let nodesInThisLayer = [];
 
-      // Process all nodes at the current level
       for (let i = 0; i < levelSize; i++) {
         const node = queue.shift();
 
@@ -86,9 +89,14 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
       }
 
       // Position all nodes in this layer horizontally
+      layerCounts[currentLayer] = nodesInThisLayer.length;
+      if (nodesInThisLayer.length > maxNodesPerLayer) {
+        maxNodesPerLayer = nodesInThisLayer.length;
+      }
+
       const layerWidth = Math.max(width, nodesInThisLayer.length * 150);
       const layerSpacing = layerWidth / (nodesInThisLayer.length + 1);
-      const layerY = topY + currentLayer * 180;
+      const layerY = topY + currentLayer * 400;
 
       nodesInThisLayer.forEach((node, i) => {
         positions[node] = {
@@ -100,7 +108,12 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
       currentLayer++;
     }
 
-    return positions;
+    // Return positions and layout info for canvas sizing
+    return {
+      positions,
+      maxDepth: currentLayer,
+      maxWidth: maxNodesPerLayer,
+    };
   };
 
   useEffect(() => {
@@ -113,23 +126,30 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
     const { graph, allNodes } = buildGraphStructure();
 
     // Calculate node positions using layered approach
-    const positions = calculateNodePositions(graph, allNodes);
+    const { positions, maxDepth, maxWidth } = calculateNodePositions(graph, allNodes);
 
-    // Standard canvas setup
+    // Size canvas appropriately based on actual layout
+    const nodeWidth = 150; // Width needed per node
+    const nodeHeight = 400; // Height needed per layer
+    const horizontalPadding = 200;
+    const verticalPadding = 100;
+
+    // Calculate dimensions based on actual layout needs
+    const canvasWidth = Math.max(900, (maxWidth + 1) * nodeWidth);
+    const canvasHeight = Math.max(600, (maxDepth + 1) * nodeHeight);
+
+    // Set canvas size
     const xs = allNodes.map((n) => positions[n].x);
     const minX = Math.min(...xs);
     const maxX = Math.max(...xs);
     const padding = 100;
-
-    // Set canvas size to cover full span
     const width = Math.max(maxX - minX + padding * 2, allNodes.length * 120);
-    const height = 1000;
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = canvasWidth + horizontalPadding;
+    canvas.height = canvasHeight + verticalPadding;
 
-    // Shift origin so minX maps to padding
-    ctx.setTransform(1, 0, 0, 1, padding - minX, 0);
-    ctx.clearRect(minX - padding, 0, width, height);
+    // Standard canvas setup
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.scale(scale, scale);
 
     // Background

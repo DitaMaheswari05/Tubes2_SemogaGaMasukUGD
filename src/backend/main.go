@@ -158,15 +158,15 @@ func main() {
         switch algo {
         //-----------------------------------------------------------------
         case "dfs":
-            recipeFinder.BuildReverseIndex(indexedGraph)
+            recipeFinder.BuildReverseIndex(recipeFinder.GlobalIndexedGraph)
             if multi {
                 // Get N unique paths (multi DFS)
-                steps, nodes := recipeFinder.RangeDFSPaths(target, int(maxPaths), indexedGraph)
+                steps, nodes := recipeFinder.RangeDFSPaths(target, int(maxPaths), recipeFinder.GlobalIndexedGraph)
                 resp.NodesVisited = nodes
                 resp.Tree = stepsToTrees(target, steps)
             } else {
                 // Single path (single DFS)
-                rec, nodes := recipeFinder.DFSBuildTargetToBase(target, indexedGraph)
+                rec, nodes := recipeFinder.DFSBuildTargetToBase(target, recipeFinder.GlobalIndexedGraph)
                 resp.NodesVisited = nodes
                 resp.Tree = recipeFinder.BuildTree(target, rec)
             }
@@ -176,7 +176,7 @@ func main() {
             if multi {
                 resp.Tree = []*recipeFinder.RecipeNode{}
             } else {
-                prev, _, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+                prev, _, nodes := recipeFinder.IndexedBFSBuild(target, recipeFinder.GlobalIndexedGraph)
                 resp.NodesVisited = nodes
                 resp.Tree = recipeFinder.BuildTree(target, prev)
             }
@@ -190,16 +190,21 @@ func main() {
                 var trees []*recipeFinder.RecipeNode
                 skip := 0
                 for len(trees) < desired {
-                    infos, nodes := recipeFinder.RangePathsIndexed(indexedGraph.NameToID[target], skip, batch, indexedGraph)
+                    infos, nodes := recipeFinder.RangePathsIndexed(recipeFinder.GlobalIndexedGraph.NameToID[target], skip, batch, recipeFinder.GlobalIndexedGraph)
                     resp.NodesVisited += nodes
                     if len(infos) == 0 { break }
                     skip += len(infos)
                     t := infosToTrees(target, infos, printed)
                     trees = append(trees, t...)
                 }
+				if len(trees) > 0 {
+					// Apply tree-based deduplication
+					trees = recipeFinder.DeduplicateRecipeTrees(trees)
+					resp.Tree = trees
+				}
                 resp.Tree = trees
             } else {
-                prev, searchSteps, nodes := recipeFinder.IndexedBFSBuild(target, indexedGraph)
+                prev, searchSteps, nodes := recipeFinder.IndexedBFSBuild(target, recipeFinder.GlobalIndexedGraph)
                 resp.NodesVisited = nodes
                 resp.Tree = recipeFinder.BuildTree(target, prev)
 				resp.SearchSteps = searchSteps
