@@ -76,8 +76,8 @@ export default function Index() {
       });
 
       if (Array.isArray(data.tree)) {
-        setResults(data.tree);
-      } else if (data.tree) {
+        setResults(data.tree.slice(0, maxRecipes));
+      } else if (data.tree.slice(0, maxRecipes)) {
         setResults([data.tree]);
       } else {
         setResults([]);
