@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -136,7 +137,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 	nodes := 0
 	hits := 0
 	const maxDepth = 20
-	const maxWorkers = 4
+	maxWorkers := runtime.NumCPU()
 	const maxLevelSize = 5000
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
