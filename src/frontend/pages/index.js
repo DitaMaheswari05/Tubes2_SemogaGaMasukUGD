@@ -57,7 +57,7 @@ export default function Index() {
     setError(null);
     setResponse(null);
     setResults(null);
-    setSubmittedTarget(targetElement); // ✨ Langkah 2
+    setSubmittedTarget(targetElement);
 
     try {
       const url = `/api/find?target=${encodeURIComponent(targetElement)}&multi=${
@@ -76,9 +76,9 @@ export default function Index() {
       });
 
       if (Array.isArray(data.tree)) {
-        setResults(data.tree.slice(0, maxRecipes));
-      } else if (data.tree.slice(0, maxRecipes)) {
-        setResults([data.tree]);
+        setResults(data.tree.slice(0, maxRecipes)); // agar jumlah resep sesuai dengan input
+      } else if (data.tree) {
+        setResults([data.tree].slice(0, maxRecipes));
       } else {
         setResults([]);
       }
