@@ -5,15 +5,18 @@ import (
 	"sort"
 )
 
-/* -------------------------------------------------------------------------
-   Reverse-index (read-only)
-   This index maps product IDs to the ingredient pairs that can create them.
-   It enables efficient lookup of "what ingredients make this product?" which
-   is essential for target→base DFS traversal.                              */
-type pair struct{ a, b int }              // Represents an ingredient pair (a,b)
-type revIndex map[int][]pair              // Maps product ID to all ingredient pairs
+/*
+-------------------------------------------------------------------------
 
-var revIdx revIndex                        // Global reverse index: productID → pairs
+	Reverse-index (read-only)
+	This index maps product IDs to the ingredient pairs that can create them.
+	It enables efficient lookup of "what ingredients make this product?" which
+	is essential for target→base DFS traversal.
+*/
+type pair struct{ a, b int } // Represents an ingredient pair (a,b)
+type revIndex map[int][]pair // Maps product ID to all ingredient pairs
+
+var revIdx revIndex // Global reverse index: productID → pairs
 
 // BuildReverseIndex creates a reverse mapping from products to their ingredient pairs.
 // This should be called once at startup before running DFS algorithms.
@@ -41,14 +44,17 @@ func BuildReverseIndex(g IndexedGraph) {
 			return ti < tj
 		})
 	}
-	revIdx = idx  // Set the global variable
+	revIdx = idx // Set the global variable
 }
 
-/* -------------------------------------------------------------------------
-   Single-path DFS (recursive)
-   This algorithm finds a single path from target to base elements using
-   depth-first search with caching and pruning optimizations.              */
-var canReachBaseCache map[int]bool  // Memoization cache: elementID → can reach base?
+/*
+-------------------------------------------------------------------------
+
+	Single-path DFS (recursive)
+	This algorithm finds a single path from target to base elements using
+	depth-first search with caching and pruning optimizations.
+*/
+var canReachBaseCache map[int]bool // Memoization cache: elementID → can reach base?
 
 // findPathToBaseCnt is a recursive DFS function that finds a path from an element to base elements.
 // Parameters:
@@ -59,6 +65,7 @@ var canReachBaseCache map[int]bool  // Memoization cache: elementID → can reac
 //   - recipes: Output map to store the found recipe steps
 //   - visit: Map to track visited elements (prevents cycles)
 //   - counter: Pointer to count nodes visited (for statistics)
+//
 // Returns:
 //   - bool: True if a path to base elements was found, false otherwise
 func findPathToBaseCnt(
@@ -86,8 +93,8 @@ func findPathToBaseCnt(
 
 	// Mark as visited temporarily for this path
 	visit[id] = true
-	defer func() { visit[id] = false }()  // Clean up before returning
-	*counter++  // Count this node as visited
+	defer func() { visit[id] = false }() // Clean up before returning
+	*counter++                           // Count this node as visited
 
 	// Check if current element is a base element (success case)
 	name := g.IDToName[id]
@@ -111,11 +118,11 @@ func findPathToBaseCnt(
 	// Recursively try each ingredient pair
 	for _, pr := range ing {
 		a, b := pr[0], pr[1]
-		
+
 		// Try to find paths from both ingredients to base elements
 		if findPathToBaseCnt(a, depth+1, maxDepth, g, recipes, visit, counter) &&
 			findPathToBaseCnt(b, depth+1, maxDepth, g, recipes, visit, counter) {
-			
+
 			// Record the successful recipe step
 			recipes[name] = RecipeStep{
 				Combo: IngredientCombo{
@@ -139,6 +146,7 @@ func findPathToBaseCnt(
 // Parameters:
 //   - target: Name of the target element to find a recipe for
 //   - g: The indexed graph containing all element relationships
+//
 // Returns:
 //   - ProductToIngredients: Map of products to their ingredient recipes
 //   - int: Count of nodes visited during the search
@@ -175,6 +183,7 @@ func DFSBuildTargetToBase(target string, g IndexedGraph) (ProductToIngredients, 
 // This is used to deduplicate paths that are functionally equivalent.
 // Parameters:
 //   - p: Slice of [ingredientA, ingredientB, product] triples representing a path
+//
 // Returns:
 //   - uint64: Hash value representing the path signature
 func hashPath(p [][]int) uint64 {
@@ -188,7 +197,9 @@ func hashPath(p [][]int) uint64 {
 		_, _ = h.Write(buf[:])
 	}
 	for _, t := range p {
-		put(t[0]); put(t[1]); put(t[2])
+		put(t[0])
+		put(t[1])
+		put(t[2])
 	}
 	return h.Sum64()
 }
@@ -199,30 +210,31 @@ func hashPath(p [][]int) uint64 {
 //   - target: Name of the target element to find recipes for
 //   - maxPaths: Maximum number of unique paths to find
 //   - g: The indexed graph containing all element relationships
+//
 // Returns:
 //   - []RecipeStep: Slice of recipe steps, one for each unique path found
 //   - int: Count of nodes visited during the search
 func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, int) {
 	// Stack element for iterative DFS
-	type elem struct{ 
-		id int        // Current element ID
-		childPos int  // Position in the children list
+	type elem struct {
+		id       int // Current element ID
+		childPos int // Position in the children list
 	}
 
 	targetID := g.NameToID[target]
-	stack := []elem{{id: targetID}}      // Start with target element
-	path := make([][]int, 0, 64)         // Current path being built
-	visited := make(map[int]bool)        // Track visited elements to prevent cycles
-	seenSig := make(map[uint64]struct{}) // Track seen paths for deduplication
+	stack := []elem{{id: targetID}}        // Start with target element
+	path := make([][]int, 0, 64)           // Current path being built
+	visited := make(map[int]bool)          // Track visited elements to prevent cycles
+	seenSig := make(map[uint64]struct{})   // Track seen paths for deduplication
 	out := make([]RecipeStep, 0, maxPaths) // Output collection
-	nodes := 0                           // Node visit counter
+	nodes := 0                             // Node visit counter
 
 	// Continue until stack is empty or we've found enough paths
 	for len(stack) > 0 && len(out) < maxPaths {
-		top := &stack[len(stack)-1]  // Peek at top element
+		top := &stack[len(stack)-1] // Peek at top element
 		id := top.id
-		nodes++  // Count this node as visited
-		
+		nodes++ // Count this node as visited
+
 		// Check if current element is a base element
 		isBase := false
 		for _, b := range BaseElements {
@@ -231,7 +243,7 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 				break
 			}
 		}
-		
+
 		if isBase {
 			// We've reached a base element, potentially completing a path
 			sig := hashPath(path)
@@ -240,35 +252,35 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 				seenSig[sig] = struct{}{}
 				out = append(out, buildRecipeStepFromPath(path, targetID, g))
 			}
-			stack = stack[:len(stack)-1]  // Pop from stack
+			stack = stack[:len(stack)-1] // Pop from stack
 			continue
 		}
-		
+
 		// Check for cycles in current path
 		if visited[id] {
-			stack = stack[:len(stack)-1]  // Pop from stack
+			stack = stack[:len(stack)-1] // Pop from stack
 			continue
 		}
 		visited[id] = true
-		
+
 		// Check if we've exhausted all children for this element
 		if top.childPos >= len(revIdx[id]) {
-			visited[id] = false  // No longer in path
+			visited[id] = false // No longer in path
 			if len(path) > 0 {
-				path = path[:len(path)-1]  // Pop from path
+				path = path[:len(path)-1] // Pop from path
 			}
-			stack = stack[:len(stack)-1]  // Pop from stack
+			stack = stack[:len(stack)-1] // Pop from stack
 			continue
 		}
-		
+
 		// Process next child
-		p := revIdx[id][top.childPos]  // Get next ingredient pair
-		top.childPos++                  // Move to next child for future
-		
+		p := revIdx[id][top.childPos] // Get next ingredient pair
+		top.childPos++                // Move to next child for future
+
 		// Push both ingredients onto stack for DFS
 		stack = append(stack, elem{id: p.a})
 		stack = append(stack, elem{id: p.b})
-		
+
 		// Add this step to the current path
 		path = append(path, []int{p.a, p.b, id})
 	}
@@ -284,6 +296,7 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 // Parameters:
 //   - productID: ID of the product element to find ingredients for
 //   - g: The indexed graph containing all element relationships
+//
 // Returns:
 //   - [][]int: Slice of [ingredientA, ingredientB] pairs that produce the target
 func findIngredientsFor(productID int, g IndexedGraph) [][]int {
