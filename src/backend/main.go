@@ -62,33 +62,20 @@ func main() {
 		// 2) Read existing recipe.json
 		// ---------------------------------------------------------------------
 		rawJSON, err = os.ReadFile(jsonFile)
-		if err != nil {
-			log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
-		}
+		// if err != nil {
+		// 	log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
+		// }
 
-		// ---------------------------------------------------------------------
-		// 3) Parse JSON → Catalog struct (only if we didn't just scrape)
-		// ---------------------------------------------------------------------
-		if err := json.Unmarshal(rawJSON, &recipeFinder.GlobalCatalog); err != nil {
-			log.Fatalf("invalid JSON: %v", err)
-		}
+		// // ---------------------------------------------------------------------
+		// // 3) Parse JSON → Catalog struct (only if we didn't just scrape)
+		// // ---------------------------------------------------------------------
+		// if err := json.Unmarshal(rawJSON, &recipeFinder.GlobalCatalog); err != nil {
+		// 	log.Fatalf("invalid JSON: %v", err)
+		// }
 	}
 
 	// Sort tiers in catalog - "Starting" first, then numeric tiers in order
-	sort.Slice(recipeFinder.GlobalCatalog.Tiers, func(i, j int) bool {
-		// "Starting" tier always comes first
-		if recipeFinder.GlobalCatalog.Tiers[i].Name == "Starting" {
-			return true
-		}
-		if recipeFinder.GlobalCatalog.Tiers[j].Name == "Starting" {
-			return false
-		}
-		
-		// For numeric tiers, sort by number
-		iNum, _ := strconv.Atoi(recipeFinder.GlobalCatalog.Tiers[i].Name)
-		jNum, _ := strconv.Atoi(recipeFinder.GlobalCatalog.Tiers[j].Name)
-		return iNum < jNum
-	})
+	sortCatalogTiers(&recipeFinder.GlobalCatalog)
 
 	recipeFinder.InitElementTiers(recipeFinder.GlobalCatalog)
 
@@ -238,8 +225,60 @@ func main() {
         _ = os.WriteFile(filepath.Join(jsonDir, "queryResult.json"), raw, 0o644)
     })
 
+	// ---------------------------------------------------------------------
+    // 8) Recipe scrape endpoint: /api/scrape
     // ---------------------------------------------------------------------
-    // 8) Run server
+	http.HandleFunc("/api/scrape", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		
+		log.Println("Scrape requested via API")
+		
+		// Run the same scraping code as with the -scrape flag
+		catalog, err := recipeFinder.ScrapeAll()
+		if err != nil {
+			log.Printf("API scrape failed: %v", err)
+			http.Error(w, "Failed to scrape data: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		
+		// Update global catalog
+		recipeFinder.GlobalCatalog = catalog
+
+		// Sort catalog tiers
+		sortCatalogTiers(&recipeFinder.GlobalCatalog)
+		
+		// Save to file
+		os.MkdirAll(jsonDir, 0o755)
+		rawJSON, _ = json.MarshalIndent(recipeFinder.GlobalCatalog, "", "  ")
+		if err := os.WriteFile(jsonFile, rawJSON, 0o644); err != nil {
+			log.Printf("Failed to write scraped data: %v", err)
+			http.Error(w, "Failed to save scraped data", http.StatusInternalServerError)
+			return
+		}
+		
+		// Re-initialize with new data
+		recipeFinder.InitElementTiers(recipeFinder.GlobalCatalog)
+		
+		// Rebuild indexed graph
+		indexedGraph = recipeFinder.BuildIndexedGraph(recipeFinder.GlobalCatalog)
+		recipeFinder.GlobalIndexedGraph = indexedGraph
+		
+		// Return success response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "success",
+			"message": "Scraping completed successfully",
+			"elements_count": len(catalog.Tiers),
+		})
+	})
+
+    // ---------------------------------------------------------------------
+    // 9) Run server
     // ---------------------------------------------------------------------
     log.Printf("listening on %s…", *addr)
     log.Fatal(http.ListenAndServe(*addr, nil))
@@ -284,4 +323,23 @@ func infosToTrees(target string, infos []recipeFinder.RecipeStep, printed map[st
         }
     }
     return out
+}
+
+// sortCatalogTiers sorts the tiers in catalog - "Starting" first, then numeric tiers in order
+func sortCatalogTiers(catalog *recipeFinder.Catalog) {
+    // "Starting" tier always comes first, then numeric tiers in order
+    sort.Slice(catalog.Tiers, func(i, j int) bool {
+        // "Starting" tier always comes first
+        if catalog.Tiers[i].Name == "Starting" {
+            return true
+        }
+        if catalog.Tiers[j].Name == "Starting" {
+            return false
+        }
+        
+        // For numeric tiers, sort by number
+        iNum, _ := strconv.Atoi(catalog.Tiers[i].Name)
+        jNum, _ := strconv.Atoi(catalog.Tiers[j].Name)
+        return iNum < jNum
+    })
 }

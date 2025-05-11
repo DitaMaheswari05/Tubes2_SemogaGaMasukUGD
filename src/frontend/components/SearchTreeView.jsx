@@ -86,9 +86,9 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
       }
 
       // Position all nodes in this layer horizontally
-      const layerWidth = width;
-      const layerSpacing = layerWidth * 2 / (nodesInThisLayer.length + 1);
-      const layerY = topY + currentLayer * 160;
+      const layerWidth = Math.max(width, nodesInThisLayer.length * 150);
+      const layerSpacing = layerWidth / (nodesInThisLayer.length + 1);
+      const layerY = topY + currentLayer * 180;
 
       nodesInThisLayer.forEach((node, i) => {
         positions[node] = {
@@ -122,8 +122,8 @@ function SearchTreeView({ discovered, currentNode, queueNodes, seenNodes }) {
     const padding = 100;
 
     // Set canvas size to cover full span
-    const width = maxX - minX + padding * 2;
-    const height = 1000; // or compute based on layers
+    const width = Math.max(maxX - minX + padding * 2, allNodes.length * 120);
+    const height = 1000;
     canvas.width = width;
     canvas.height = height;
 

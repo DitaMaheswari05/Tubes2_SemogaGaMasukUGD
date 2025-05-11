@@ -37,17 +37,17 @@ export default function Index() {
   const [response, setResponse] = useState(null);
   const [viewMode, setViewMode] = useState("result"); // 'result' or 'process'
 
-  useEffect(() => {
-    fetch("/api/elements")
-      .then((res) => res.json())
-      .then((data) => {
-        setAvailableElements(data.elements || []);
-      })
-      .catch((err) => {
-        console.error("Failed to load elements:", err);
-        setAvailableElements([]);
-      });
-  }, []);
+//   useEffect(() => {
+//     fetch("/api/elements")
+//       .then((res) => res.json())
+//       .then((data) => {
+//         setAvailableElements(data.elements || []);
+//       })
+//       .catch((err) => {
+//         console.error("Failed to load elements:", err);
+//         setAvailableElements([]);
+//       });
+//   }, []);
 
   const handleSearch = async () => {
     if (!targetElement) return;
@@ -90,6 +90,38 @@ export default function Index() {
     }
   };
 
+  const handleScrape = async () => {
+    if (!confirm("This will scrape all recipes from the wiki. This may take a minute or two. Continue?")) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const response = await fetch("/api/scrape", {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+
+      const data = await response.json();
+      alert(`Scraping completed! ${data.message}`);
+
+      // Refresh available elements to get the new data
+    //   fetch("/api/elements")
+    //     .then((res) => res.json())
+    //     .then((data) => {
+    //       setAvailableElements(data.elements || []);
+    //     });
+    } catch (error) {
+      alert("Error scraping data: " + error.message);
+      console.error("Scrape error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <>
       <Head>
@@ -106,11 +138,8 @@ export default function Index() {
             </Link>
           </div>
           <div className="scrape-button">
-          <button
-              onClick={() => alert("Scraping all recipes...")}
-              className="scrape-button-inner"
-            >
-              Scrape All
+            <button onClick={handleScrape} className="scrape-button-inner" disabled={isLoading}>
+              {isLoading ? "Scraping..." : "Scrape All"}
             </button>
           </div>
         </header>

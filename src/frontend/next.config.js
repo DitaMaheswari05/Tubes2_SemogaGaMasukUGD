@@ -15,6 +15,10 @@ const nextConfig = {
         destination: 'http://localhost:8080/api/recipes'
       },
       {
+        source: '/api/scrape',
+        destination: 'http://localhost:8080/api/scrape'
+      },
+      {
         source: '/api/svgs/:path*',
         destination: 'http://localhost:8080/svgs/:path*'
       }
