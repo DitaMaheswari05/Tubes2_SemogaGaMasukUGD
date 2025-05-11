@@ -94,7 +94,7 @@ function RecipeTree({ path, index }) {
 
     // untuk elemen2 lain
     const colorPalette = [
-      "#a8d5a8", "#a8c5d5", "#d5a8a8", "#d5d5d5", "#f4c2c2",
+      "#a8d5a8", "#a8c5d5", "#d5a8a8", "#808080", "#f4c2c2",
       "#f0e68c", "#dda0dd", "#add8e6", "#90ee90", "#ffcccb"
     ]
 
@@ -109,7 +109,7 @@ function RecipeTree({ path, index }) {
     if (element === "Earth") color = "#228B22"
     if (element === "Water") color = "#1E90FF"
     if (element === "Fire") color = "#FF6347"
-    if (element === "Air") color = "#D3D3D3"
+    if (element === "Air") color = "#E0E0E0"
 
     // kotak elemen
     ctx.fillStyle = color
