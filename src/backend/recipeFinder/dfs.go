@@ -1,8 +1,11 @@
 package recipeFinder
 
 import (
+	"context"
 	"hash/fnv"
 	"sort"
+	"sync"
+	"sync/atomic"
 )
 
 /*
@@ -214,6 +217,11 @@ func hashPath(p [][]int) uint64 {
 // Returns:
 //   - []RecipeStep: Slice of recipe steps, one for each unique path found
 //   - int: Count of nodes visited during the search
+//
+
+// RangeDFSPaths finds up to maxPaths unique DFS recipes, exploring each top-level
+// ingredient-pair for `target` in parallel and cancelling early once we hit the limit.
+// RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs.
 func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, int) {
 	// Stack element for iterative DFS
 	type elem struct {
@@ -222,70 +230,122 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 	}
 
 	targetID := g.NameToID[target]
-	stack := []elem{{id: targetID}}        // Start with target element
-	path := make([][]int, 0, 64)           // Current path being built
-	visited := make(map[int]bool)          // Track visited elements to prevent cycles
-	seenSig := make(map[uint64]struct{})   // Track seen paths for deduplication
-	out := make([]RecipeStep, 0, maxPaths) // Output collection
-	nodes := 0                             // Node visit counter
+	roots := revIdx[targetID] // []pair
+	var (
+		out     []RecipeStep
+		seenSig = make(map[uint64]struct{})
+		mu      sync.Mutex
+		nodes   int64
+	)
 
-	// Continue until stack is empty or we've found enough paths
-	for len(stack) > 0 && len(out) < maxPaths {
-		top := &stack[len(stack)-1] // Peek at top element
-		id := top.id
-		nodes++ // Count this node as visited
+	// Context to cancel all workers when done
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-		// Check if current element is a base element
-		isBase := false
-		for _, b := range BaseElements {
-			if id == g.NameToID[b] {
-				isBase = true
-				break
+	var wg sync.WaitGroup
+	wg.Add(len(roots))
+
+	// worker launches one stack‐based DFS for a single root pair
+	worker := func(pr pair) {
+		defer wg.Done()
+
+		// each goroutine has its own stack, path, visited
+		stack := []elem{{id: targetID, childPos: 0}}
+		path := make([][]int, 0, 64)
+		visited := make(map[int]bool)
+
+		// we’ll manually seed the first recipe step
+		// by pushing pr.b then pr.a onto the stack
+		// with an initial path entry
+		path = append(path, []int{pr.a, pr.b, targetID})
+		stack = append(stack, elem{id: pr.b}, elem{id: pr.a})
+
+		for len(stack) > 0 {
+			// Early exit if someone hit maxPaths
+			select {
+			case <-ctx.Done():
+				return
+			default:
 			}
-		}
 
-		if isBase {
-			// We've reached a base element, potentially completing a path
-			sig := hashPath(path)
-			if _, ok := seenSig[sig]; !ok {
-				// This is a new unique path
-				seenSig[sig] = struct{}{}
-				out = append(out, buildRecipeStepFromPath(path, targetID, g))
+			// pop
+			f := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+
+			id := f.id
+			atomic.AddInt64(&nodes, 1)
+
+			// base check
+			isBase := false
+			for _, b := range BaseElements {
+				if id == g.NameToID[b] {
+					isBase = true
+					break
+				}
 			}
-			stack = stack[:len(stack)-1] // Pop from stack
-			continue
-		}
+			if isBase {
+				// We've reached a base element, potentially completing a path
+				sig := hashPath(path)
+				mu.Lock()
+				if len(out) < maxPaths {
+					if _, ok := seenSig[sig]; !ok {
+						// This is a new unique path
+						seenSig[sig] = struct{}{}
+						out = append(out, buildRecipeStepFromPath(path, targetID, g))
+						if len(out) == maxPaths {
+							cancel()
+						}
+					}
+				}
+				mu.Unlock()
 
-		// Check for cycles in current path
-		if visited[id] {
-			stack = stack[:len(stack)-1] // Pop from stack
-			continue
-		}
-		visited[id] = true
-
-		// Check if we've exhausted all children for this element
-		if top.childPos >= len(revIdx[id]) {
-			visited[id] = false // No longer in path
-			if len(path) > 0 {
-				path = path[:len(path)-1] // Pop from path
+				// pop this step from path
+				if len(path) > 0 {
+					path = path[:len(path)-1]
+				}
+				continue
 			}
-			stack = stack[:len(stack)-1] // Pop from stack
-			continue
+
+			// Check for cycles in current path
+			if visited[id] {
+				// backtrack path
+				if len(path) > 0 {
+					path = path[:len(path)-1]
+				}
+				continue
+			}
+			visited[id] = true
+
+			// Check if we've exhausted all children for this element
+			children := revIdx[id]
+			if f.childPos >= len(children) {
+				visited[id] = false // No longer in path
+				if len(path) > 0 {
+					path = path[:len(path)-1] // Pop from path
+				}
+				continue
+			}
+
+			// otherwise, process this child
+			pr2 := children[f.childPos]
+			// advance the childPos on this elem, then re-push it
+			f.childPos++
+			stack = append(stack, f)
+
+			// push the two ingredients of pr2 (b then a)
+			// but first extend path
+			path = append(path, []int{pr2.a, pr2.b, id})
+			stack = append(stack, elem{id: pr2.b}, elem{id: pr2.a})
 		}
-
-		// Process next child
-		p := revIdx[id][top.childPos] // Get next ingredient pair
-		top.childPos++                // Move to next child for future
-
-		// Push both ingredients onto stack for DFS
-		stack = append(stack, elem{id: p.a})
-		stack = append(stack, elem{id: p.b})
-
-		// Add this step to the current path
-		path = append(path, []int{p.a, p.b, id})
 	}
 
-	return out, nodes
+	// launch one worker per root-pair
+	for _, pr := range roots {
+		go worker(pr)
+	}
+	wg.Wait()
+
+	return out, int(atomic.LoadInt64(&nodes))
 }
 
 /* -------------------------------------------------------------------------
