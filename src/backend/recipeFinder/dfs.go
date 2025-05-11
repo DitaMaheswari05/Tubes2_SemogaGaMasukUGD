@@ -226,7 +226,8 @@ func hashPath(p [][]int) uint64 {
 // RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs,
 // but never more than NumCPU() workers in flight at a time.
 func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, int) {
-	type frame struct{ id, childPos int }
+	// Stack element for iterative DFS
+	type elem struct{ id, childPos int }
 	targetID := g.NameToID[target]
 	roots := revIdx[targetID]
 
@@ -237,30 +238,31 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 		nodes   int64
 	)
 
-	// 1) Create a bounded semaphore channel of size = number of CPUs
+	// Create a bounded semaphore channel of size = number of CPUs
 	maxWorkers := runtime.NumCPU()
 	sem := make(chan struct{}, maxWorkers)
 
-	// 2) Context to cancel all workers when we hit maxPaths
+	// Context to cancel all workers when we hit maxPaths
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
 	wg.Add(len(roots))
 
+	// Worker launches one stack-based DFS for a single root pair
 	worker := func(pr pair) {
 		defer wg.Done()
 		// Release our “token” when this goroutine exits
 		defer func() { <-sem }()
 
 		// Each goroutine has its own stack, path, visited
-		stack := []frame{{id: targetID}}
+		stack := []elem{{id: targetID}}
 		path := make([][]int, 0, 64)
 		visited := make(map[int]bool)
 
 		// Seed the initial step
 		path = append(path, []int{pr.a, pr.b, targetID})
-		stack = append(stack, frame{id: pr.b}, frame{id: pr.a})
+		stack = append(stack, elem{id: pr.b}, elem{id: pr.a})
 
 		for len(stack) > 0 {
 			// Early cancel
@@ -285,6 +287,7 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 				}
 			}
 			if isBase {
+				// We've reached a base element, potentially completing a path
 				sig := hashPath(path)
 				mu.Lock()
 				if len(out) < maxPaths {
@@ -297,7 +300,7 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 					}
 				}
 				mu.Unlock()
-				// backtrack path
+				// backtrack path (pop this step from path)
 				if len(path) > 0 {
 					path = path[:len(path)-1]
 				}
@@ -315,9 +318,9 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 
 			children := revIdx[id]
 			if f.childPos >= len(children) {
-				visited[id] = false
+				visited[id] = false // no longer in path
 				if len(path) > 0 {
-					path = path[:len(path)-1]
+					path = path[:len(path)-1] // pop from path
 				}
 				continue
 			}
@@ -329,7 +332,7 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 
 			// Extend path, push b then a
 			path = append(path, []int{pr2.a, pr2.b, id})
-			stack = append(stack, frame{id: pr2.b}, frame{id: pr2.a})
+			stack = append(stack, elem{id: pr2.b}, elem{id: pr2.a})
 		}
 	}
 
