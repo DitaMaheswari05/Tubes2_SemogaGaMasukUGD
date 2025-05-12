@@ -160,7 +160,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 
 	// Track product revisits for diversity
 	productVisits := make(map[int]int)
-	const maxProductVisits = 3 // Allow more diverse paths for each product
+	const maxProductVisits = 5 // Allow more diverse paths for each product
 
 	// Cache product-to-recipe mappings to ensure diversity
 	productRecipes := make(map[int]map[string]bool)
@@ -184,11 +184,11 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 
 	nodes := 0
 	hits := 0
-	const maxDepth = 20
+	const maxDepth = 30
 	maxWorkers := runtime.NumCPU()
-	const maxLevelSize = 5000
+	const maxLevelSize = 10000
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Increased timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Increased timeout
 	defer cancel()
 
 	for depth := 0; depth <= maxDepth && len(currLevel) > 0; depth++ {
@@ -359,7 +359,7 @@ func deduplicateRecipes(recipes []RecipeStep) []RecipeStep {
         // Compare with all previously accepted recipes
         for j := 0; j < len(result); j++ {
             // If recipes share more than 80% of their structure, consider them duplicates
-            if pathSimilarity(recipes[i].Path, result[j].Path) > 0.8 {
+            if pathSimilarity(recipes[i].Path, result[j].Path) > 0.9 {
                 unique = false
                 break
             }

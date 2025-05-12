@@ -161,9 +161,17 @@ func main() {
             recipeFinder.BuildReverseIndex(recipeFinder.GlobalIndexedGraph)
             if multi {
                 // Get N unique paths (multi DFS)
-                steps, nodes := recipeFinder.RangeDFSPaths(target, int(maxPaths), recipeFinder.GlobalIndexedGraph)
+				effectiveMaxPaths := int(maxPaths) * 2
+                steps, nodes := recipeFinder.RangeDFSPaths(target, effectiveMaxPaths, recipeFinder.GlobalIndexedGraph)
                 resp.NodesVisited = nodes
-                resp.Tree = stepsToTrees(target, steps)
+                trees := stepsToTrees(target, steps)
+        
+				// Apply tree-based deduplication (just like in BFS)
+				if len(trees) > 0 {
+					trees = recipeFinder.DeduplicateRecipeTrees(trees)
+				}
+
+				resp.Tree = trees   
             } else {
                 // Single path (single DFS)
                 rec, nodes := recipeFinder.DFSBuildTargetToBase(target, recipeFinder.GlobalIndexedGraph)
@@ -185,11 +193,11 @@ func main() {
         default: // bfs
             if multi {
                 desired := int(maxPaths)
-                batch   := 2 // get 20 paths per iteration
+                batch   := 4 // get 20 paths per iteration
                 printed := map[string]bool{}
                 var trees []*recipeFinder.RecipeNode
                 skip := 0
-                for len(trees) < desired {
+                for len(trees) < desired*2 && skip < 20 {
                     infos, nodes := recipeFinder.RangePathsIndexed(recipeFinder.GlobalIndexedGraph.NameToID[target], skip, batch, recipeFinder.GlobalIndexedGraph)
                     resp.NodesVisited += nodes
                     if len(infos) == 0 { break }
