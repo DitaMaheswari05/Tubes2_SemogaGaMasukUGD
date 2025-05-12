@@ -16,15 +16,10 @@ This index maps product IDs to the ingredient pairs that can create them.
 It enables efficient lookup of "what ingredients make this product?" and
 is essential for target-to-base DFS traversal.
 */
+type pair struct{ a, b int } // Represents an ingredient pair (a,b)
+type revIndex map[int][]pair // Maps product ID to all ingredient pairs
 
-// pair represents an ingredient pair (a, b).
-type pair struct{ a, b int }
-
-// revIndex maps a product ID to all ingredient pairs that can create it.
-type revIndex map[int][]pair
-
-// Global reverse index: productID → pairs
-var revIdx revIndex
+var revIdx revIndex // Global reverse index: productID → pairs
 
 // BuildReverseIndex creates a reverse mapping from products to their ingredient pairs.
 // This should be called once at startup before running DFS algorithms.
@@ -64,6 +59,18 @@ depth-first search with caching and pruning optimizations.
 */
 var canReachBaseCache map[int]bool // Memoization cache: elementID → can reach base?
 
+// findPathToBaseCnt is a recursive DFS function that finds a path from an element to base elements.
+// Parameters:
+//   - id: Current element ID being processed
+//   - depth: Current recursion depth
+//   - maxDepth: Maximum recursion depth limit to prevent stack overflow
+//   - g: The indexed graph containing all element relationships
+//   - recipes: Output map to store the found recipe steps
+//   - visit: Map to track visited elements (prevents cycles)
+//   - counter: Pointer to count nodes visited (for statistics)
+//
+// Returns:
+//   - bool: True if a path to base elements was found, false otherwise
 func findPathToBaseCnt(
 	id, depth, maxDepth int,
 	g IndexedGraph,
@@ -139,6 +146,13 @@ func findPathToBaseCnt(
 // DFSBuildTargetToBase performs a target-to-base DFS search to find a single valid recipe path.
 // It starts from the target element and works backward to find constituent ingredients
 // until reaching base elements.
+// Parameters:
+//   - target: Name of the target element to find a recipe for
+//   - g: The indexed graph containing all element relationships
+//
+// Returns:
+//   - ProductToIngredients: Map of products to their ingredient recipes
+//   - int: Count of nodes visited during the search
 func DFSBuildTargetToBase(target string, g IndexedGraph) (ProductToIngredients, int) {
 	targetID := g.NameToID[target]
 	recipes := make(ProductToIngredients)
@@ -165,6 +179,11 @@ func DFSBuildTargetToBase(target string, g IndexedGraph) (ProductToIngredients, 
 
 // hashPath generates a hash signature for a specific recipe path.
 // This is used to deduplicate paths that are functionally equivalent.
+// Parameters:
+//   - p: Slice of [ingredientA, ingredientB, product] triples representing a path
+//
+// Returns:
+//   - uint64: Hash value representing the path signature
 func hashPath(p [][]int) uint64 {
 	h := fnv.New64a()
 	var buf [4]byte
@@ -193,7 +212,6 @@ Multi-path DFS (iterative/parallel)
 // RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs,
 // but never more than NumCPU() workers in flight at a time.
 // Uses an iterative, stack-based DFS approach to avoid recursion stack overflow.
-
 func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, int) {
 	// Stack element for iterative DFS
 	type elem struct{ id, childPos int }
@@ -206,6 +224,8 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 		mu      sync.Mutex
 		nodes   int64
 	)
+
+	internalMaxPaths := maxPaths * 4
 
 	// Create a bounded semaphore channel of size = number of CPUs
 	maxWorkers := runtime.NumCPU()
@@ -221,13 +241,15 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 	// Worker launches one stack-based DFS for a single root pair
 	worker := func(pr pair) {
 		defer wg.Done()
-		// Release our “token” when this goroutine exits
+		// Release our "token" when this goroutine exits
 		defer func() { <-sem }()
 
 		// Each goroutine has its own stack, path, visited
 		stack := []elem{{id: targetID}}
 		path := make([][]int, 0, 64)
 		visited := make(map[int]bool)
+		revisitCounts := make(map[int]int) // Track element revisits
+		const maxRevisits = 2              // Allow revisiting non-base elements up to 2 times
 
 		// Seed the initial step
 		path = append(path, []int{pr.a, pr.b, targetID})
@@ -259,11 +281,11 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 				// We've reached a base element, potentially completing a path
 				sig := hashPath(path)
 				mu.Lock()
-				if len(out) < maxPaths {
+				if len(out) < internalMaxPaths {
 					if _, seen := seenSig[sig]; !seen {
 						seenSig[sig] = struct{}{}
 						out = append(out, buildRecipeStepFromPath(path, targetID, g))
-						if len(out) == maxPaths {
+						if len(out) == internalMaxPaths {
 							cancel()
 						}
 					}
@@ -276,12 +298,27 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 				continue
 			}
 
-			// Cycle guard
+			// Modified cycle guard - allow some revisits for diversity
 			if visited[id] {
-				if len(path) > 0 {
-					path = path[:len(path)-1]
+				// Base elements should never be revisited
+				isBaseElement := false
+				for _, b := range BaseElements {
+					if id == g.NameToID[b] {
+						isBaseElement = true
+						break
+					}
 				}
-				continue
+
+				// Never revisit base elements or elements we've revisited too much
+				if isBaseElement || revisitCounts[id] >= maxRevisits {
+					if len(path) > 0 {
+						path = path[:len(path)-1]
+					}
+					continue
+				}
+
+				// Allow revisit but count it
+				revisitCounts[id]++
 			}
 			visited[id] = true
 
@@ -307,9 +344,77 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 
 	// 3) Launch each worker, but block if we've hit maxWorkers in flight
 	for _, pr := range roots {
-		sem <- struct{}{} // acquire a “slot” (blocks if full)
+		sem <- struct{}{} // acquire a "slot" (blocks if full)
 		go worker(pr)
 	}
 	wg.Wait()
+
+	if len(out) > maxPaths {
+		out = deduplicateRecipesDFS(out)
+
+		// Limit to maxPaths
+		if len(out) > maxPaths {
+			out = out[:maxPaths]
+		}
+	}
+
 	return out, int(atomic.LoadInt64(&nodes))
+}
+
+// Update the deduplication function as well
+func deduplicateRecipesDFS(recipes []RecipeStep) []RecipeStep {
+	if len(recipes) <= 1 {
+		return recipes
+	}
+
+	result := []RecipeStep{recipes[0]}
+
+	for i := 1; i < len(recipes); i++ {
+		unique := true
+
+		// Compare with all previously accepted recipes
+		for j := 0; j < len(result); j++ {
+			// Compare based on ingredients used
+			// Lower threshold to keep more diverse paths
+			if recipePathsAreSimilar(recipes[i], result[j]) > 0.75 { // Lower from 0.85 to 0.75
+				unique = false
+				break
+			}
+		}
+
+		if unique {
+			result = append(result, recipes[i])
+		}
+	}
+
+	return result
+}
+
+func recipePathsAreSimilar(r1, r2 RecipeStep) float64 {
+	// Extract all elements from both recipes
+	set1 := make(map[string]bool)
+	set2 := make(map[string]bool)
+
+	// Add elements from first recipe
+	set1[r1.Combo.A] = true
+	set1[r1.Combo.B] = true
+
+	// Add elements from second recipe
+	set2[r2.Combo.A] = true
+	set2[r2.Combo.B] = true
+
+	// Count common elements
+	common := 0
+	for elem := range set1 {
+		if set2[elem] {
+			common++
+		}
+	}
+
+	// Calculate Jaccard similarity
+	totalUnique := len(set1) + len(set2) - common
+	if totalUnique == 0 {
+		return 1.0
+	}
+	return float64(common) / float64(totalUnique)
 }

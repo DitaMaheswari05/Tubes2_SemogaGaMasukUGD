@@ -3,8 +3,10 @@ package recipeFinder
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,7 +126,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		depth int
 	}
 
-	// function to pre-sort neighbor edges for deterministic order (redefine sort.Slice comparator to align with g.Edges data structure)
+	// pre-sort neighbor edges for deterministic order
 	for u := range g.Edges {
 		sort.Slice(g.Edges[u], func(i, j int) bool {
 			a, b := g.Edges[u][i], g.Edges[u][j]
@@ -135,15 +137,12 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		})
 	}
 
-	// --- Caching Control ---
 	// cache for seen paths (thread-safe)
 	const cacheCapacity = 10000
 	type entry struct{ key string }
 	cacheList := make([]entry, 0, cacheCapacity)
 	cacheMap := make(map[string]struct{})
 	var cacheMu sync.Mutex
-
-	// Removes the oldest entry if cache is too big
 	evict := func() {
 		if len(cacheList) > cacheCapacity {
 			old := cacheList[0]
@@ -151,7 +150,6 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 			delete(cacheMap, old.key)
 		}
 	}
-	// Check and add unique path hash (signature)
 	checkAndAdd := func(sig string) bool {
 		cacheMu.Lock()
 		defer cacheMu.Unlock()
@@ -163,7 +161,13 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		evict()
 		return true
 	}
-	// --- ---
+
+	// Track product revisits for diversity
+	productVisits := make(map[int]int)
+	const maxProductVisits = 5 // Allow more diverse paths for each product
+
+	// Cache product-to-recipe mappings to ensure diversity
+	productRecipes := make(map[int]map[string]bool)
 
 	// helper to copy and extend a path
 	appendCopyPath := func(cur [][]int, a, b, c int) [][]int {
@@ -174,21 +178,21 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 	}
 
 	// initialization
-	seen := make(map[int]bool)
+	reachable := make(map[int]bool)
 	var currLevel []state
 	for _, b := range BaseElements {
 		id := g.NameToID[b]
-		seen[id] = true
+		reachable[id] = true
 		currLevel = append(currLevel, state{elem: id, depth: 0})
 	}
 
 	nodes := 0
 	hits := 0
-	const maxDepth = 20
+	const maxDepth = 30
 	maxWorkers := runtime.NumCPU()
-	const maxLevelSize = 5000
+	const maxLevelSize = 10000
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Increased timeout
 	defer cancel()
 
 	for depth := 0; depth <= maxDepth && len(currLevel) > 0; depth++ {
@@ -200,7 +204,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		var nextLevel []state
 		var mu sync.Mutex
 		var wg sync.WaitGroup
-		workerPool := make(chan struct{}, maxWorkers)
+		sem := make(chan struct{}, maxWorkers)
 
 		for _, st := range currLevel {
 			nodes++
@@ -212,47 +216,90 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 				continue
 			}
 			wg.Add(1)
-			workerPool <- struct{}{}
+			sem <- struct{}{}
 			go func(st state) {
 				defer wg.Done()
-				defer func() { <-workerPool }()
+				defer func() { <-sem }()
 				for _, r := range g.Edges[st.elem] {
 					select {
 					case <-ctx.Done():
 						return
 					default:
 					}
+
+					partnerID := r.PartnerID
+					productID := r.ProductID
+
 					mu.Lock()
-					reached := seen[r.PartnerID]
+					reached := reachable[partnerID]
+					revisitCount := productVisits[productID]
+
+					// Initialize product recipe tracking if needed
+					if productRecipes[productID] == nil {
+						productRecipes[productID] = make(map[string]bool)
+					}
+
+					// Generate recipe signature
+					recipeKey := fmt.Sprintf("%d+%d", min(st.elem, partnerID), max(st.elem, partnerID))
+					seenRecipe := productRecipes[productID][recipeKey]
 					mu.Unlock()
+
+					// Skip if partner is not reachable
 					if !reached {
 						continue
 					}
-					np := appendCopyPath(st.path, st.elem, r.PartnerID, r.ProductID)
+
+					// Allow exploring even if product was seen before, under conditions:
+					// 1. If we haven't exceeded max visits for this product
+					// 2. If we haven't seen this specific recipe for this product
+					shouldExplore := !reachable[productID] ||
+						(!seenRecipe && revisitCount < maxProductVisits)
+
+					if !shouldExplore {
+						continue
+					}
+
+					// Create extended path
+					np := appendCopyPath(st.path, st.elem, partnerID, productID)
+
+					// Check path canonicalization to avoid duplicates
 					sig := canonicalHash(np)
 					if !checkAndAdd(sig) {
 						continue
 					}
+
 					mu.Lock()
-					nextLevel = append(nextLevel, state{elem: r.ProductID, path: np, depth: st.depth + 1})
+					// Track this recipe for this product
+					productRecipes[productID][recipeKey] = true
+
+					// If product was already reachable, increment visit count
+					if reachable[productID] {
+						productVisits[productID]++
+					}
+
+					// Add to next level
+					nextLevel = append(nextLevel, state{elem: productID, path: np, depth: st.depth + 1})
 					mu.Unlock()
 				}
 			}(st)
 		}
 		wg.Wait()
-		// invoke sort.Slice function to sort nextLevel for stability before bounding.
+
+		// sort nextLevel for stability before bounding
 		sort.Slice(nextLevel, func(i, j int) bool {
 			if nextLevel[i].elem != nextLevel[j].elem {
 				return nextLevel[i].elem < nextLevel[j].elem
 			}
 			return len(nextLevel[i].path) < len(nextLevel[j].path)
 		})
+
 		if len(nextLevel) > maxLevelSize {
 			nextLevel = nextLevel[:maxLevelSize]
 		}
-		// update seen
+
+		// update reachable
 		for _, st := range nextLevel {
-			seen[st.elem] = true
+			reachable[st.elem] = true
 		}
 		currLevel = nextLevel
 	}
@@ -288,13 +335,123 @@ func RangePathsIndexed(targetID int, start, limit int, g IndexedGraph) ([]Recipe
 
 				// Combine the first path with additional paths
 				result := append(firstPath, additionalPaths...)
+
+				// Apply path deduplication
+				result = deduplicateRecipes(result)
+
 				return result, nodes + additionalNodes
 			}
 		}
 	}
 
 	// Fall back to standard multi-path search
-	return findAdditionalPaths(targetID, start, limit, g)
+	paths, nodes := findAdditionalPaths(targetID, start, limit, g)
+	return deduplicateRecipes(paths), nodes
+}
+
+// Deduplicates recipes based on structure similarity
+func deduplicateRecipes(recipes []RecipeStep) []RecipeStep {
+	if len(recipes) <= 1 {
+		return recipes
+	}
+
+	result := []RecipeStep{recipes[0]}
+
+	for i := 1; i < len(recipes); i++ {
+		unique := true
+
+		// Compare with all previously accepted recipes
+		for j := 0; j < len(result); j++ {
+			// If recipes share more than 80% of their structure, consider them duplicates
+			if pathSimilarity(recipes[i].Path, result[j].Path) > 0.9 {
+				unique = false
+				break
+			}
+		}
+
+		if unique {
+			result = append(result, recipes[i])
+		}
+	}
+
+	return result
+}
+
+// TreeSignature creates a structural signature for deduplication
+func treeSignature(tree *RecipeNode) string {
+	if tree == nil {
+		return ""
+	}
+
+	// If it's a leaf node
+	if len(tree.Children) == 0 {
+		return tree.Name
+	}
+
+	// Get signatures for children and sort them
+	childSigs := make([]string, len(tree.Children))
+	for i, child := range tree.Children {
+		childSigs[i] = treeSignature(child)
+	}
+	sort.Strings(childSigs) // Sort to make order-independent
+
+	// Combine into a unique signature
+	return fmt.Sprintf("%s(%s)", tree.Name, strings.Join(childSigs, "|"))
+}
+
+// Improved deduplication of recipe trees
+func DeduplicateRecipeTrees(trees []*RecipeNode) []*RecipeNode {
+	if len(trees) <= 1 {
+		return trees
+	}
+
+	// Map to track signatures we've seen
+	seen := make(map[string]bool)
+	result := make([]*RecipeNode, 0, len(trees))
+
+	for _, tree := range trees {
+		sig := treeSignature(tree)
+		if !seen[sig] {
+			seen[sig] = true
+			result = append(result, tree)
+		}
+	}
+
+	return result
+}
+
+// Calculate similarity between two paths
+func pathSimilarity(path1, path2 [][]string) float64 {
+	if len(path1) == 0 || len(path2) == 0 {
+		return 0
+	}
+
+	// Create sets of unique elements in each path
+	set1 := make(map[string]bool)
+	set2 := make(map[string]bool)
+
+	for _, step := range path1 {
+		for _, elem := range step {
+			set1[elem] = true
+		}
+	}
+
+	for _, step := range path2 {
+		for _, elem := range step {
+			set2[elem] = true
+		}
+	}
+
+	// Count common elements
+	common := 0
+	for elem := range set1 {
+		if set2[elem] {
+			common++
+		}
+	}
+
+	// Calculate Jaccard similarity: intersection/union
+	return float64(common) / float64(len(set1)+len(set2)-common)
 }
 
 // findAdditionalPaths implements the standard multi-path search

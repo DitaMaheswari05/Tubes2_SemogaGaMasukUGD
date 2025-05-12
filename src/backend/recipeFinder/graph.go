@@ -98,7 +98,7 @@ func BuildIndexedGraph(cat Catalog) IndexedGraph {
 
 				// Check if this is a valid recipe (ingredients not higher tier than product)
 				// Either ingredient tier should not exceed product tier
-				if aTier > productTier || bTier > productTier {
+				if aTier >= productTier || bTier >= productTier {
 					// Skip this recipe - it doesn't make logical sense
 					continue
 				}
