@@ -161,7 +161,7 @@ export default function Index() {
 
           {isLoading && (
             <div className="loading">
-              <p>Mencari resep.....</p>
+              <p>Find recipe(s).....</p>
             </div>
           )}
 
@@ -175,10 +175,10 @@ export default function Index() {
             <div className="results-container">
               <div className="search-stats">
                 <p>
-                  Waktu pencarian: <strong>{searchStats.time} ms</strong>
+                  Search Time : <strong>{searchStats.time} ms</strong>
                 </p>
                 <p>
-                  Node yang dikunjungi: <strong>{searchStats.nodesVisited}</strong>
+                  Visited Node: <strong>{searchStats.nodesVisited}</strong>
                 </p>
               </div>
 

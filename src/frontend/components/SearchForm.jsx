@@ -16,7 +16,7 @@ function SearchForm({
   return (
     <div className="search-form">
       <div className="form-group">
-        <label htmlFor="algorithm">Pilih Algoritma:</label>
+        <label htmlFor="algorithm">Choose Algorithm:</label>
         <div className="algorithm-options">
           <button
             className={`algorithm-btn ${algorithm === "bfs" ? "active" : ""}`}
@@ -40,7 +40,7 @@ function SearchForm({
       </div>
 
       <div className="form-group">
-        <label htmlFor="searchMode">Mode Pencarian Resep:</label>
+        <label htmlFor="searchMode">Recipe Search Mode:</label>
         <div className="toggle-container">
           <button
             className={`toggle-btn ${multiMode === false ? "active" : ""}`}
@@ -59,7 +59,7 @@ function SearchForm({
 
       {multiMode === true && (
         <div className="form-group">
-          <label htmlFor="maxRecipes">Maksimum Resep yang Dicari:</label>
+          <label htmlFor="maxRecipes">Maximum Recipes:</label>
           <input
             type="number"
             id="maxRecipes"
@@ -73,7 +73,7 @@ function SearchForm({
       )}
 
       <div className="form-group">
-        <label htmlFor="targetElement">Target Elemen:</label>
+        <label htmlFor="targetElement">Target Element:</label>
         <div className="input-group">
           <input
             type="text"
