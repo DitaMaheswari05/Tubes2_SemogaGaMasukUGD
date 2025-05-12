@@ -3,10 +3,8 @@ package recipeFinder
 import (
 	"container/list"
 	"context"
-	"fmt"
 	"runtime"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -24,6 +22,10 @@ type SearchStep struct {
 	FoundTarget     bool                                      `json:"found_target"`
 }
 
+/*
+-------------------------------------------------------------------------
+Single-recipe BFS
+*/
 func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredients, []SearchStep, int) {
 	targetID := graph.NameToID[targetName]
 
@@ -111,7 +113,7 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 
 /*
 -------------------------------------------------------------------------
- 2. Jalur ke‑(skip+1) (distinct)
+Path (skip+1) (distinct)
 */
 // findKthPathIndexed finds the (skip+1)-th distinct path to targetID using a level-based parallel BFS,
 // with deterministic ordering: sorted neighbors and stable bounding.
@@ -133,12 +135,15 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		})
 	}
 
+	// --- Caching Control ---
 	// cache for seen paths (thread-safe)
 	const cacheCapacity = 10000
 	type entry struct{ key string }
 	cacheList := make([]entry, 0, cacheCapacity)
 	cacheMap := make(map[string]struct{})
 	var cacheMu sync.Mutex
+
+	// Removes the oldest entry if cache is too big
 	evict := func() {
 		if len(cacheList) > cacheCapacity {
 			old := cacheList[0]
@@ -146,6 +151,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 			delete(cacheMap, old.key)
 		}
 	}
+	// Check and add unique path hash (signature)
 	checkAndAdd := func(sig string) bool {
 		cacheMu.Lock()
 		defer cacheMu.Unlock()
@@ -157,6 +163,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		evict()
 		return true
 	}
+	// --- ---
 
 	// helper to copy and extend a path
 	appendCopyPath := func(cur [][]int, a, b, c int) [][]int {
@@ -193,7 +200,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		var nextLevel []state
 		var mu sync.Mutex
 		var wg sync.WaitGroup
-		sem := make(chan struct{}, maxWorkers)
+		workerPool := make(chan struct{}, maxWorkers)
 
 		for _, st := range currLevel {
 			nodes++
@@ -205,10 +212,10 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 				continue
 			}
 			wg.Add(1)
-			sem <- struct{}{}
+			workerPool <- struct{}{}
 			go func(st state) {
 				defer wg.Done()
-				defer func() { <-sem }()
+				defer func() { <-workerPool }()
 				for _, r := range g.Edges[st.elem] {
 					select {
 					case <-ctx.Done():
@@ -233,7 +240,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 			}(st)
 		}
 		wg.Wait()
-		// sort nextLevel for stability before bounding
+		// invoke sort.Slice function to sort nextLevel for stability before bounding
 		sort.Slice(nextLevel, func(i, j int) bool {
 			if nextLevel[i].elem != nextLevel[j].elem {
 				return nextLevel[i].elem < nextLevel[j].elem
@@ -253,7 +260,8 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 }
 
 /* -------------------------------------------------------------------------
-   3.  Beberapa jalur berurutan                                              */
+Multi-Recipe BFS (Some Paths in sequence)
+*/
 // RangePathsIndexed returns up to `limit` distinct paths to `targetID`
 func RangePathsIndexed(targetID int, start, limit int, g IndexedGraph) ([]RecipeStep, int) {
 	// If we're looking for the first path (start=0), use the efficient single-path algorithm
@@ -289,64 +297,6 @@ func RangePathsIndexed(targetID int, start, limit int, g IndexedGraph) ([]Recipe
 	return findAdditionalPaths(targetID, start, limit, g)
 }
 
-// Helper to extract a path from single-recipe BFS result
-func extractPathFromRecipes(targetID int, recipes ProductToIngredients, g IndexedGraph) RecipeStep {
-	// Build a path by following the recipe chain from target to base elements
-	var path [][]string
-	current := g.IDToName[targetID]
-
-	// Track visited elements to avoid cycles
-	visited := make(map[string]bool)
-
-	// Walk the recipe chain
-	for {
-		if visited[current] {
-			break // Avoid cycles
-		}
-		visited[current] = true
-
-		recipe, exists := recipes[current]
-		if !exists {
-			break
-		}
-
-		a := recipe.Combo.A
-		b := recipe.Combo.B
-
-		// Add this step to the path
-		path = append(path, []string{a, b, current})
-
-		// If both ingredients are base elements, we're done
-		aIsBase := isBaseElement(a)
-		bIsBase := isBaseElement(b)
-
-		if aIsBase && bIsBase {
-			break
-		}
-
-		// Continue with a non-base ingredient
-		if !aIsBase {
-			current = a
-		} else {
-			current = b
-		}
-	}
-
-	// Reverse the path since we built it backwards
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
-	}
-
-	// Convert to RecipeStep format
-	return RecipeStep{
-		Combo: IngredientCombo{
-			A: recipes[g.IDToName[targetID]].Combo.A,
-			B: recipes[g.IDToName[targetID]].Combo.B,
-		},
-		Path: path,
-	}
-}
-
 // findAdditionalPaths implements the standard multi-path search
 func findAdditionalPaths(targetID, start, limit int, g IndexedGraph) ([]RecipeStep, int) {
 	// This is your current implementation of finding multiple paths
@@ -364,112 +314,4 @@ func findAdditionalPaths(targetID, start, limit int, g IndexedGraph) ([]RecipeSt
 	}
 
 	return out, totalNodesVisited
-}
-
-/*
--------------------------------------------------------------------------
-
-	Helper & util
-*/
-func canonicalHash(p [][]int) string {
-	var steps []string
-	for _, t := range p {
-		a, b := min(t[0], t[1]), max(t[0], t[1])
-		steps = append(steps, fmt.Sprintf("%d-%d-%d", a, b, t[2]))
-	}
-	return strings.Join(steps, "|")
-}
-
-func buildRecipeStepFromPath(path [][]int, targetID int, g IndexedGraph) RecipeStep {
-	if len(path) == 0 {
-		return RecipeStep{}
-	}
-	strPath := make([][]string, len(path))
-	for i, t := range path {
-		strPath[i] = []string{
-			g.IDToName[t[0]],
-			g.IDToName[t[1]],
-			g.IDToName[t[2]],
-		}
-	}
-	last := path[len(path)-1]
-	return RecipeStep{
-		Combo: IngredientCombo{
-			A: g.IDToName[last[0]],
-			B: g.IDToName[last[1]],
-		},
-		Path: strPath,
-	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// Helper function to convert map keys to a slice of ints
-func mapKeysToSlice(m map[int]bool) []int {
-	result := make([]int, 0, len(m))
-	for k := range m {
-		result = append(result, k)
-	}
-	return result
-}
-
-// Helper function to convert map keys to element names
-func mapKeysToNameSlice(m map[int]bool, g IndexedGraph) []string {
-	result := make([]string, 0, len(m))
-	for k := range m {
-		result = append(result, g.IDToName[k])
-	}
-	return result
-}
-
-// Helper function to convert queue to a slice of ints
-func queueToSlice(q *list.List) []int {
-	result := make([]int, 0, q.Len())
-	for e := q.Front(); e != nil; e = e.Next() {
-		result = append(result, e.Value.(int))
-	}
-	return result
-}
-
-// Helper function to convert queue to a slice of names
-func queueToNameSlice(q *list.List, g IndexedGraph) []string {
-	result := make([]string, 0, q.Len())
-	for e := q.Front(); e != nil; e = e.Next() {
-		id := e.Value.(int)
-		result = append(result, g.IDToName[id])
-	}
-	return result
-}
-
-// copyMap creates a deep copy of a map of product IDs to parent/partner IDs
-func copyMap(m map[int]struct{ ParentID, PartnerID int }) map[int]struct{ ParentID, PartnerID int } {
-	result := make(map[int]struct{ ParentID, PartnerID int }, len(m))
-	for k, v := range m {
-		result[k] = v // struct is copied by value
-	}
-	return result
-}
-
-// prevIDsToNames converts the integer IDs in the prevIDs map to their string names
-func prevIDsToNames(m map[int]struct{ ParentID, PartnerID int }, g IndexedGraph) map[string]struct{ A, B string } {
-	result := make(map[string]struct{ A, B string }, len(m))
-	for productID, info := range m {
-		productName := g.IDToName[productID]
-		result[productName] = struct{ A, B string }{
-			A: g.IDToName[info.ParentID],
-			B: g.IDToName[info.PartnerID],
-		}
-	}
-	return result
 }

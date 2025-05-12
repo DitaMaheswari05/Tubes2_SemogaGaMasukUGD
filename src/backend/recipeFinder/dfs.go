@@ -10,17 +10,21 @@ import (
 )
 
 /*
--------------------------------------------------------------------------
+Reverse-index (read-only)
 
-	Reverse-index (read-only)
-	This index maps product IDs to the ingredient pairs that can create them.
-	It enables efficient lookup of "what ingredients make this product?" which
-	is essential for target→base DFS traversal.
+This index maps product IDs to the ingredient pairs that can create them.
+It enables efficient lookup of "what ingredients make this product?" and
+is essential for target-to-base DFS traversal.
 */
-type pair struct{ a, b int } // Represents an ingredient pair (a,b)
-type revIndex map[int][]pair // Maps product ID to all ingredient pairs
 
-var revIdx revIndex // Global reverse index: productID → pairs
+// pair represents an ingredient pair (a, b).
+type pair struct{ a, b int }
+
+// revIndex maps a product ID to all ingredient pairs that can create it.
+type revIndex map[int][]pair
+
+// Global reverse index: productID → pairs
+var revIdx revIndex
 
 // BuildReverseIndex creates a reverse mapping from products to their ingredient pairs.
 // This should be called once at startup before running DFS algorithms.
@@ -53,25 +57,13 @@ func BuildReverseIndex(g IndexedGraph) {
 
 /*
 -------------------------------------------------------------------------
+Single-path DFS (recursive)
 
-	Single-path DFS (recursive)
-	This algorithm finds a single path from target to base elements using
-	depth-first search with caching and pruning optimizations.
+This algorithm finds a single path from a target element to base elements using
+depth-first search with caching and pruning optimizations.
 */
 var canReachBaseCache map[int]bool // Memoization cache: elementID → can reach base?
 
-// findPathToBaseCnt is a recursive DFS function that finds a path from an element to base elements.
-// Parameters:
-//   - id: Current element ID being processed
-//   - depth: Current recursion depth
-//   - maxDepth: Maximum recursion depth limit to prevent stack overflow
-//   - g: The indexed graph containing all element relationships
-//   - recipes: Output map to store the found recipe steps
-//   - visit: Map to track visited elements (prevents cycles)
-//   - counter: Pointer to count nodes visited (for statistics)
-//
-// Returns:
-//   - bool: True if a path to base elements was found, false otherwise
 func findPathToBaseCnt(
 	id, depth, maxDepth int,
 	g IndexedGraph,
@@ -147,13 +139,6 @@ func findPathToBaseCnt(
 // DFSBuildTargetToBase performs a target-to-base DFS search to find a single valid recipe path.
 // It starts from the target element and works backward to find constituent ingredients
 // until reaching base elements.
-// Parameters:
-//   - target: Name of the target element to find a recipe for
-//   - g: The indexed graph containing all element relationships
-//
-// Returns:
-//   - ProductToIngredients: Map of products to their ingredient recipes
-//   - int: Count of nodes visited during the search
 func DFSBuildTargetToBase(target string, g IndexedGraph) (ProductToIngredients, int) {
 	targetID := g.NameToID[target]
 	recipes := make(ProductToIngredients)
@@ -180,11 +165,6 @@ func DFSBuildTargetToBase(target string, g IndexedGraph) (ProductToIngredients, 
 
 // hashPath generates a hash signature for a specific recipe path.
 // This is used to deduplicate paths that are functionally equivalent.
-// Parameters:
-//   - p: Slice of [ingredientA, ingredientB, product] triples representing a path
-//
-// Returns:
-//   - uint64: Hash value representing the path signature
 func hashPath(p [][]int) uint64 {
 	h := fnv.New64a()
 	var buf [4]byte
@@ -203,23 +183,17 @@ func hashPath(p [][]int) uint64 {
 	return h.Sum64()
 }
 
-// RangeDFSPaths finds multiple unique recipe paths from a target element to base elements.
-// Uses an iterative, stack-based DFS approach to avoid recursion stack overflow.
-// Parameters:
-//   - target: Name of the target element to find recipes for
-//   - maxPaths: Maximum number of unique paths to find
-//   - g: The indexed graph containing all element relationships
-//
-// Returns:
-//   - []RecipeStep: Slice of recipe steps, one for each unique path found
-//   - int: Count of nodes visited during the search
-//
-
+/*
+-------------------------------------------------------------------------
+Multi-path DFS (iterative/parallel)
+*/
 // RangeDFSPaths finds up to maxPaths unique DFS recipes, exploring each top-level
 // ingredient-pair for `target` in parallel and cancelling early once we hit the limit.
 // RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs.
 // RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs,
 // but never more than NumCPU() workers in flight at a time.
+// Uses an iterative, stack-based DFS approach to avoid recursion stack overflow.
+
 func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, int) {
 	// Stack element for iterative DFS
 	type elem struct{ id, childPos int }
@@ -338,31 +312,4 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 	}
 	wg.Wait()
 	return out, int(atomic.LoadInt64(&nodes))
-}
-
-/* -------------------------------------------------------------------------
-   Helper functions
-   These provide utility functionality used by the DFS algorithms.         */
-
-// findIngredientsFor returns all ingredient pairs that can create a specific product.
-// Parameters:
-//   - productID: ID of the product element to find ingredients for
-//   - g: The indexed graph containing all element relationships
-//
-// Returns:
-//   - [][]int: Slice of [ingredientA, ingredientB] pairs that produce the target
-func findIngredientsFor(productID int, g IndexedGraph) [][]int {
-	var res [][]int
-
-	// Scan through the entire graph looking for combinations that produce our target
-	for aID, nbrs := range g.Edges {
-		for _, e := range nbrs {
-			if e.ProductID == productID {
-				// Found a combination that produces our target
-				res = append(res, []int{aID, e.PartnerID})
-			}
-		}
-	}
-
-	return res
 }
