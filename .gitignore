@@ -12,3 +12,6 @@ src/backend/json
 # OS / editor
 .DS_Store
 .vscode/
+
+# environment variables
+.env*

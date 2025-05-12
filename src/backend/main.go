@@ -108,7 +108,7 @@ func main() {
 	if filepath.Base(wd) == "backend" {
 		svgPath = svgDir
 	} else {
-		svgPath = filepath.Join("src", "backend", svgDir)
+		svgPath = filepath.Join(wd, svgDir)
 	}
 	if _, err := os.Stat(svgPath); os.IsNotExist(err) {
 		log.Fatalf("SVG directory not found at: %s", svgPath)
