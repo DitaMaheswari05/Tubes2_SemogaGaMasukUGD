@@ -20,10 +20,10 @@ const baseURL = "https://little-alchemy.fandom.com/wiki/Elements_(Little_Alchemy
 // Element represents a single item in Little Alchemy 2
 // Each element has a name, SVG image paths, and recipes to create it
 type Element struct {
-	Name           string     `json:"name"`           // Element name (e.g., "Water", "Fire")
-	LocalSVGPath   string     `json:"local_svg_path"` // Relative path to locally saved SVG
+	Name           string     `json:"name"`             // Element name (e.g., "Water", "Fire")
+	LocalSVGPath   string     `json:"local_svg_path"`   // Relative path to locally saved SVG
 	OriginalSVGURL string     `json:"original_svg_url"` // Original URL of the element's image
-	Recipes        [][]string `json:"recipes"`        // List of ingredient pairs that make this element
+	Recipes        [][]string `json:"recipes"`          // List of ingredient pairs that make this element
 }
 
 // Tier represents a group of elements of similar complexity
@@ -42,7 +42,7 @@ type Catalog struct {
 // ScrapeAll retrieves and parses the entire Little Alchemy 2 wiki
 // It extracts all elements, their recipes, and image references
 // Returns a complete Catalog and any errors encountered during scraping
-func ScrapeAll() (Catalog, error) {
+func ScrapeAll(downloadSVGs bool) (Catalog, error) {
 	// First make an HTTP GET request to the wiki page
 	resp, err := http.Get(baseURL)
 	if err != nil {
@@ -60,7 +60,7 @@ func ScrapeAll() (Catalog, error) {
 
 	// Find all h3 headers which divide elements into tiers
 	doc.Find("h3").Each(func(_ int, hdr *goquery.Selection) {
-		// Extract tier title from headline span	
+		// Extract tier title from headline span
 		rawTitle := hdr.Find("span.mw-headline").Text()
 		if rawTitle == "" {
 			return // Skip headers without titles
@@ -93,13 +93,13 @@ func ScrapeAll() (Catalog, error) {
 			if i == 0 {
 				return // Skip table header row
 			}
-		
+
 			// Get all columns in this row
 			cols := row.Find("td")
 			if cols.Length() < 2 {
 				return // Skip rows without enough columns
 			}
-		
+
 			// Extract element name from the first column
 			name := cols.Eq(0).Find("a[title]").First().Text()
 			if name == "" {
@@ -114,7 +114,10 @@ func ScrapeAll() (Catalog, error) {
 				// Create local path for SVG (not actually downloading in this code)
 				fname := strings.ReplaceAll(name, " ", "_") + ".svg"
 				local = filepath.Join(strings.ReplaceAll(tierName, " ", "_"), fname)
-				// downloadSVG(href, filepath.Join(tierDir, fname)) // Commented out
+
+				if downloadSVGs {
+					downloadSVG(href, filepath.Join(tierDir, fname)) // Commented out
+				}
 			}
 
 			// Extract all recipes from the second column
@@ -147,7 +150,7 @@ func ScrapeAll() (Catalog, error) {
 		}
 	})
 
-  return catalog, nil
+	return catalog, nil
 }
 
 // cleanTierName normalizes tier names from the wiki format
@@ -155,7 +158,7 @@ func ScrapeAll() (Catalog, error) {
 // For example: "Tier 1 elements" becomes simply "1"
 func cleanTierName(raw string) string {
 	s := raw
-	s = strings.TrimPrefix(s, "Tier ") // Remove "Tier " prefix
+	s = strings.TrimPrefix(s, "Tier ")     // Remove "Tier " prefix
 	s = strings.TrimSuffix(s, " elements") // Remove plural suffix
 	s = strings.TrimSuffix(s, " element")  // Remove singular suffix
 	return s
@@ -172,7 +175,7 @@ func downloadSVG(url, dest string) {
 		return
 	}
 	defer resp.Body.Close()
-  
+
 	// Create the destination file
 	f, err := os.Create(dest)
 	if err != nil {
@@ -180,7 +183,7 @@ func downloadSVG(url, dest string) {
 		return
 	}
 	defer f.Close()
-  
+
 	// Copy the downloaded content to the file
 	io.Copy(f, resp.Body)
 }
