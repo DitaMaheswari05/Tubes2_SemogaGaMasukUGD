@@ -195,11 +195,11 @@ func main() {
 		default: // bfs
 			if multi {
 				desired := int(maxPaths)
-				batch := 4 // get 20 paths per iteration
+				batch := 5 // get 5 paths per iteration
 				printed := map[string]bool{}
 				var trees []*recipeFinder.RecipeNode
 				skip := 0
-				for len(trees) < desired*2 && skip < 20 {
+				for len(trees) < desired*2 && skip < 50 {
 					infos, nodes := recipeFinder.RangePathsIndexed(recipeFinder.GlobalIndexedGraph.NameToID[target], skip, batch, recipeFinder.GlobalIndexedGraph)
 					resp.NodesVisited += nodes
 					if len(infos) == 0 {
@@ -220,13 +220,6 @@ func main() {
 				resp.NodesVisited = nodes
 				resp.Tree = recipeFinder.BuildTree(target, prev)
 				resp.SearchSteps = searchSteps
-
-				// Add this before sending response
-				log.Printf("SearchSteps length: %d", len(searchSteps))
-				if len(searchSteps) > 0 {
-					stepJSON, _ := json.Marshal(searchSteps[0])
-					log.Printf("First step sample: %s", string(stepJSON))
-				}
 			}
 		}
 

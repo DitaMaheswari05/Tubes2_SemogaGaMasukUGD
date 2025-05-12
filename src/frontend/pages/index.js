@@ -91,7 +91,7 @@ export default function Index() {
   };
 
   const handleScrape = async () => {
-    if (!confirm("This will scrape all recipes from the wiki. This may take a minute or two. Continue?")) {
+    if (!confirm("This will scrape all recipes from the wiki. Continue?")) {
       return;
     }
 

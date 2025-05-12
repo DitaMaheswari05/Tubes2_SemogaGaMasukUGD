@@ -343,7 +343,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 Multi-Recipe BFS (Some Paths in sequence)
 */
 // RangePathsIndexed returns up to `limit` distinct paths to `targetID`
-func RangePathsIndexed(targetID int, start, limit int, g IndexedGraph) ([]RecipeStep, int) {
+func RangePathsIndexed(targetID int, start int, limit int, g IndexedGraph) ([]RecipeStep, int) {
 	// If we're looking for the first path (start=0), use the efficient single-path algorithm
 	if start == 0 && limit > 0 {
 		// Get single path efficiently first
@@ -395,8 +395,7 @@ func deduplicateRecipes(recipes []RecipeStep) []RecipeStep {
 
 		// Compare with all previously accepted recipes
 		for j := 0; j < len(result); j++ {
-			// If recipes share more than 80% of their structure, consider them duplicates
-			if pathSimilarity(recipes[i].Path, result[j].Path) > 0.9 {
+			if pathSimilarity(recipes[i].Path, result[j].Path) > 0.70 {
 				unique = false
 				break
 			}
