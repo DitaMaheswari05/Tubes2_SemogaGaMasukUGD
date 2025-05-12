@@ -82,18 +82,51 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 		for _, neighbor := range graph.Edges[curID] {
 			partnerID := neighbor.PartnerID
 			productID := neighbor.ProductID
-
+		
 			if seen[partnerID] && !seen[productID] {
+				// We found a new product - record path
 				seen[productID] = true
 				prevIDs[productID] = struct{ ParentID, PartnerID int }{
 					ParentID:  curID,
 					PartnerID: partnerID,
 				}
+				
+				// If this is the target, we can stop immediately
+				if productID == targetID {
+					// Create a copy of prevIDs that includes the target we just found
+					finalDiscoveredEdges := copyMap(prevIDs)
+					finalDiscoveredEdges[productID] = struct{ ParentID, PartnerID int }{
+						ParentID:  curID,
+						PartnerID: partnerID,
+					}
+					
+					// Convert to names
+					finalDiscoveredNames := prevIDsToNames(finalDiscoveredEdges, graph)
+					
+					// Create final search step with target found
+					searchSteps = append(searchSteps, SearchStep{
+						CurrentID:       productID, // Use target ID as current
+						CurrentName:     graph.IDToName[productID], // Show target as current element
+						QueueIDs:        queueToSlice(queue),
+						QueueNames:      queueToNameSlice(queue, graph),
+						SeenIDs:         mapKeysToSlice(seen),
+						SeenNames:       mapKeysToNameSlice(seen, graph),
+						DiscoveredEdges: finalDiscoveredEdges, // Include target
+						DiscoveredNames: finalDiscoveredNames, // Include target
+						StepNumber:      nodes + 1,
+						FoundTarget:     true,
+					})
+					
+					// Break out of both loops
+					goto TargetFound
+				}
+				
 				queue.PushBack(productID)
 			}
 		}
 	}
 
+	TargetFound:
 	// Convert integer results to ProductToIngredients
 	recipes := make(ProductToIngredients)
 	for productID, info := range prevIDs {
