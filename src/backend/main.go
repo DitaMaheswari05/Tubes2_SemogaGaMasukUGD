@@ -62,16 +62,16 @@ func main() {
 		// 2) Read existing recipe.json
 		// ---------------------------------------------------------------------
 		rawJSON, err = os.ReadFile(jsonFile)
-		if err != nil {
-			log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
-		}
+		// if err != nil {
+		// 	log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
+		// }
 
-		// ---------------------------------------------------------------------
-		// 3) Parse JSON → Catalog struct (only if we didn't just scrape)
-		// ---------------------------------------------------------------------
-		if err := json.Unmarshal(rawJSON, &recipeFinder.GlobalCatalog); err != nil {
-			log.Fatalf("invalid JSON: %v", err)
-		}
+		// // ---------------------------------------------------------------------
+		// // 3) Parse JSON → Catalog struct (only if we didn't just scrape)
+		// // ---------------------------------------------------------------------
+		// if err := json.Unmarshal(rawJSON, &recipeFinder.GlobalCatalog); err != nil {
+		// 	log.Fatalf("invalid JSON: %v", err)
+		// }
 	}
 
 	// Sort tiers in catalog - "Starting" first, then numeric tiers in order
