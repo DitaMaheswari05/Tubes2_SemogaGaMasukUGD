@@ -240,7 +240,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 			}(st)
 		}
 		wg.Wait()
-		// invoke sort.Slice function to sort nextLevel for stability before bounding
+		// invoke sort.Slice function to sort nextLevel for stability before bounding.
 		sort.Slice(nextLevel, func(i, j int) bool {
 			if nextLevel[i].elem != nextLevel[j].elem {
 				return nextLevel[i].elem < nextLevel[j].elem
