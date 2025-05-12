@@ -12,16 +12,16 @@ import (
 )
 
 type SearchStep struct {
-    CurrentID       int                                  `json:"current_id"`
-    CurrentName     string                               `json:"current"`
-    QueueIDs        []int                                `json:"queue_ids"`
-    QueueNames      []string                             `json:"queue"`
-    SeenIDs         []int                                `json:"seen_ids"`
-    SeenNames       []string                             `json:"seen"`
-    DiscoveredEdges map[int]struct{ParentID, PartnerID int} `json:"discovered_ids"`
-    DiscoveredNames map[string]struct{A, B string}      `json:"discovered"`
-    StepNumber      int                                  `json:"step"`
-    FoundTarget     bool                                 `json:"found_target"`
+	CurrentID       int                                       `json:"current_id"`
+	CurrentName     string                                    `json:"current"`
+	QueueIDs        []int                                     `json:"queue_ids"`
+	QueueNames      []string                                  `json:"queue"`
+	SeenIDs         []int                                     `json:"seen_ids"`
+	SeenNames       []string                                  `json:"seen"`
+	DiscoveredEdges map[int]struct{ ParentID, PartnerID int } `json:"discovered_ids"`
+	DiscoveredNames map[string]struct{ A, B string }          `json:"discovered"`
+	StepNumber      int                                       `json:"step"`
+	FoundTarget     bool                                      `json:"found_target"`
 }
 
 func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredients, []SearchStep, int) {
@@ -39,17 +39,17 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 	}
 
 	searchSteps = append(searchSteps, SearchStep{
-        CurrentID: -1,
-        CurrentName: "",
-        QueueIDs: queueToSlice(queue),
-        QueueNames: queueToNameSlice(queue, graph),
-        SeenIDs: mapKeysToSlice(seen),
-        SeenNames: mapKeysToNameSlice(seen, graph),
-        DiscoveredEdges: make(map[int]struct{ParentID, PartnerID int}),
-        DiscoveredNames: make(map[string]struct{A, B string}),
-        StepNumber: 0,
-        FoundTarget: false,
-    })
+		CurrentID:       -1,
+		CurrentName:     "",
+		QueueIDs:        queueToSlice(queue),
+		QueueNames:      queueToNameSlice(queue, graph),
+		SeenIDs:         mapKeysToSlice(seen),
+		SeenNames:       mapKeysToNameSlice(seen, graph),
+		DiscoveredEdges: make(map[int]struct{ ParentID, PartnerID int }),
+		DiscoveredNames: make(map[string]struct{ A, B string }),
+		StepNumber:      0,
+		FoundTarget:     false,
+	})
 
 	// Track parents using integer IDs
 	prevIDs := make(map[int]struct{ ParentID, PartnerID int })
@@ -59,16 +59,16 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 		nodes++
 
 		searchSteps = append(searchSteps, SearchStep{
-			CurrentID: curID,
-			CurrentName: graph.IDToName[curID],
-			QueueIDs: queueToSlice(queue),
-			QueueNames: queueToNameSlice(queue, graph),
-			SeenIDs: mapKeysToSlice(seen),
-			SeenNames: mapKeysToNameSlice(seen, graph),
+			CurrentID:       curID,
+			CurrentName:     graph.IDToName[curID],
+			QueueIDs:        queueToSlice(queue),
+			QueueNames:      queueToNameSlice(queue, graph),
+			SeenIDs:         mapKeysToSlice(seen),
+			SeenNames:       mapKeysToNameSlice(seen, graph),
 			DiscoveredEdges: copyMap(prevIDs), // Need a deep copy
 			DiscoveredNames: prevIDsToNames(prevIDs, graph),
-			StepNumber: nodes,
-			FoundTarget: curID == targetID,
+			StepNumber:      nodes,
+			FoundTarget:     curID == targetID,
 		})
 
 		if curID == targetID {
@@ -122,7 +122,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		depth int
 	}
 
-	// pre-sort neighbor edges for deterministic order
+	// function to pre-sort neighbor edges for deterministic order (redefine sort.Slice comparator to align with g.Edges data structure)
 	for u := range g.Edges {
 		sort.Slice(g.Edges[u], func(i, j int) bool {
 			a, b := g.Edges[u][i], g.Edges[u][j]
@@ -167,11 +167,11 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 	}
 
 	// initialization
-	reachable := make(map[int]bool)
+	seen := make(map[int]bool)
 	var currLevel []state
 	for _, b := range BaseElements {
 		id := g.NameToID[b]
-		reachable[id] = true
+		seen[id] = true
 		currLevel = append(currLevel, state{elem: id, depth: 0})
 	}
 
@@ -216,7 +216,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 					default:
 					}
 					mu.Lock()
-					reached := reachable[r.PartnerID]
+					reached := seen[r.PartnerID]
 					mu.Unlock()
 					if !reached {
 						continue
@@ -243,9 +243,9 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		if len(nextLevel) > maxLevelSize {
 			nextLevel = nextLevel[:maxLevelSize]
 		}
-		// update reachable
+		// update seen
 		for _, st := range nextLevel {
-			reachable[st.elem] = true
+			seen[st.elem] = true
 		}
 		currLevel = nextLevel
 	}
@@ -417,59 +417,59 @@ func max(a, b int) int {
 
 // Helper function to convert map keys to a slice of ints
 func mapKeysToSlice(m map[int]bool) []int {
-    result := make([]int, 0, len(m))
-    for k := range m {
-        result = append(result, k)
-    }
-    return result
+	result := make([]int, 0, len(m))
+	for k := range m {
+		result = append(result, k)
+	}
+	return result
 }
 
 // Helper function to convert map keys to element names
 func mapKeysToNameSlice(m map[int]bool, g IndexedGraph) []string {
-    result := make([]string, 0, len(m))
-    for k := range m {
-        result = append(result, g.IDToName[k])
-    }
-    return result
+	result := make([]string, 0, len(m))
+	for k := range m {
+		result = append(result, g.IDToName[k])
+	}
+	return result
 }
 
 // Helper function to convert queue to a slice of ints
 func queueToSlice(q *list.List) []int {
-    result := make([]int, 0, q.Len())
-    for e := q.Front(); e != nil; e = e.Next() {
-        result = append(result, e.Value.(int))
-    }
-    return result
+	result := make([]int, 0, q.Len())
+	for e := q.Front(); e != nil; e = e.Next() {
+		result = append(result, e.Value.(int))
+	}
+	return result
 }
 
 // Helper function to convert queue to a slice of names
 func queueToNameSlice(q *list.List, g IndexedGraph) []string {
-    result := make([]string, 0, q.Len())
-    for e := q.Front(); e != nil; e = e.Next() {
-        id := e.Value.(int)
-        result = append(result, g.IDToName[id])
-    }
-    return result
+	result := make([]string, 0, q.Len())
+	for e := q.Front(); e != nil; e = e.Next() {
+		id := e.Value.(int)
+		result = append(result, g.IDToName[id])
+	}
+	return result
 }
 
 // copyMap creates a deep copy of a map of product IDs to parent/partner IDs
 func copyMap(m map[int]struct{ ParentID, PartnerID int }) map[int]struct{ ParentID, PartnerID int } {
-    result := make(map[int]struct{ ParentID, PartnerID int }, len(m))
-    for k, v := range m {
-        result[k] = v // struct is copied by value
-    }
-    return result
+	result := make(map[int]struct{ ParentID, PartnerID int }, len(m))
+	for k, v := range m {
+		result[k] = v // struct is copied by value
+	}
+	return result
 }
 
 // prevIDsToNames converts the integer IDs in the prevIDs map to their string names
 func prevIDsToNames(m map[int]struct{ ParentID, PartnerID int }, g IndexedGraph) map[string]struct{ A, B string } {
-    result := make(map[string]struct{ A, B string }, len(m))
-    for productID, info := range m {
-        productName := g.IDToName[productID]
-        result[productName] = struct{ A, B string }{
-            A: g.IDToName[info.ParentID],
-            B: g.IDToName[info.PartnerID],
-        }
-    }
-    return result
+	result := make(map[string]struct{ A, B string }, len(m))
+	for productID, info := range m {
+		productName := g.IDToName[productID]
+		result[productName] = struct{ A, B string }{
+			A: g.IDToName[info.ParentID],
+			B: g.IDToName[info.PartnerID],
+		}
+	}
+	return result
 }
