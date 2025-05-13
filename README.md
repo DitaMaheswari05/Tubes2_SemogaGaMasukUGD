@@ -66,8 +66,16 @@ Once Docker is installed and running:
 
 # How to use the app?
 1. Access the app (home page)
-2. Click Scrape All
-3. Enjoy!
+   ![image](https://github.com/user-attachments/assets/c574cf2b-71d4-464c-9491-93af44f80c10)
+
+3. Click Scrape All
+   ![Screenshot 2025-05-13 213927](https://github.com/user-attachments/assets/edfce231-4c70-45fe-9460-57248956b5d7)
+
+   ![image](https://github.com/user-attachments/assets/d9c43dd2-7161-421c-b972-04f468881312)
+
+5. Enjoy!
+   ![image](https://github.com/user-attachments/assets/5904c33e-e8fc-45ef-9eb2-16748cfa9e51)
+
 
 
 ## Team Information
