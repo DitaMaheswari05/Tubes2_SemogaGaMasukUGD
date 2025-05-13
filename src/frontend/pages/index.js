@@ -173,7 +173,7 @@ export default function Index() {
               </div>
 
               {/* Add view mode toggle buttons */}
-              {response && response.search_steps && (
+              {response && (
                 <div className="view-toggle" style={{ marginBottom: 20, display: "flex", justifyContent: "center" }}>
                   <button
                     onClick={() => setViewMode("result")}

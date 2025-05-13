@@ -40,7 +40,7 @@ function LiveSearchVisualizer({ searchSteps, targetElement }) {
 
   // Ensure we have data
   if (!searchSteps || searchSteps.length === 0) {
-    return <div>No search data available. Make sure BFS returned search steps.</div>;
+    return <div>No search data available. Make sure BFS/DFS returned search steps.</div>;
   }
 
   // Auto-play animation
