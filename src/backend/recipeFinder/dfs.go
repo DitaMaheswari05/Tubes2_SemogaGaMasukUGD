@@ -209,12 +209,9 @@ Multi-path DFS (iterative/parallel)
 // RangeDFSPaths finds up to maxPaths unique DFS recipes, exploring each top-level
 // ingredient-pair for `target` in parallel and cancelling early once we hit the limit.
 // RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs.
-// RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs,
 // but never more than NumCPU() workers in flight at a time.
 // Uses an iterative, stack-based DFS approach to avoid recursion stack overflow.
 func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, int) {
-	// Stack element for iterative DFS
-	type elem struct{ id, childPos int }
 	targetID := g.NameToID[target]
 	roots := revIdx[targetID]
 
@@ -225,196 +222,78 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 		nodes   int64
 	)
 
-	internalMaxPaths := maxPaths * 4
-
-	// Create a bounded semaphore channel of size = number of CPUs
-	maxWorkers := runtime.NumCPU()
-	sem := make(chan struct{}, maxWorkers)
-
-	// Context to cancel all workers when we hit maxPaths
+	// bound concurrent workers
+	sem := make(chan struct{}, runtime.NumCPU())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
-	wg.Add(len(roots))
 
-	// Worker launches one stack-based DFS for a single root pair
-	worker := func(pr pair) {
-		defer wg.Done()
-		// Release our "token" when this goroutine exits
-		defer func() { <-sem }()
+	// recursive DFS
+	var dfs func(id int, path [][]int, visited map[int]bool)
+	dfs = func(id int, path [][]int, visited map[int]bool) {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 
-		// Each goroutine has its own stack, path, visited
-		stack := []elem{{id: targetID}}
-		path := make([][]int, 0, 64)
-		visited := make(map[int]bool)
-		revisitCounts := make(map[int]int) // Track element revisits
-		const maxRevisits = 2              // Allow revisiting non-base elements up to 2 times
+		atomic.AddInt64(&nodes, 1)
 
-		// Seed the initial step
-		path = append(path, []int{pr.a, pr.b, targetID})
-		stack = append(stack, elem{id: pr.b}, elem{id: pr.a})
-
-		for len(stack) > 0 {
-			// Early cancel
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			// Pop
-			f := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			id := f.id
-			atomic.AddInt64(&nodes, 1)
-
-			// Base check
-			isBase := false
-			for _, b := range BaseElements {
-				if id == g.NameToID[b] {
-					isBase = true
-					break
-				}
-			}
-			if isBase {
-				// We've reached a base element, potentially completing a path
-				sig := hashPath(path)
-				mu.Lock()
-				if len(out) < internalMaxPaths {
-					if _, seen := seenSig[sig]; !seen {
-						seenSig[sig] = struct{}{}
-						out = append(out, buildRecipeStepFromPath(path, targetID, g))
-						if len(out) == internalMaxPaths {
-							cancel()
-						}
+		if isBaseID(id, g) {
+			sig := hashPath(path)
+			mu.Lock()
+			if len(out) < maxPaths {
+				if _, dup := seenSig[sig]; !dup {
+					seenSig[sig] = struct{}{}
+					out = append(out, buildRecipeStepFromPath(path, targetID, g))
+					if len(out) == maxPaths {
+						cancel()
 					}
 				}
-				mu.Unlock()
-				// backtrack path (pop this step from path)
-				if len(path) > 0 {
-					path = path[:len(path)-1]
-				}
-				continue
 			}
+			mu.Unlock()
+			return
+		}
 
-			// Modified cycle guard - allow some revisits for diversity
-			if visited[id] {
-				// Base elements should never be revisited
-				isBaseElement := false
-				for _, b := range BaseElements {
-					if id == g.NameToID[b] {
-						isBaseElement = true
-						break
-					}
-				}
+		if visited[id] {
+			return
+		}
+		visited[id] = true
+		defer func() { visited[id] = false }()
 
-				// Never revisit base elements or elements we've revisited too much
-				if isBaseElement || revisitCounts[id] >= maxRevisits {
-					if len(path) > 0 {
-						path = path[:len(path)-1]
-					}
-					continue
-				}
-
-				// Allow revisit but count it
-				revisitCounts[id]++
-			}
-			visited[id] = true
-
-			children := revIdx[id]
-			if f.childPos >= len(children) {
-				visited[id] = false // no longer in path
-				if len(path) > 0 {
-					path = path[:len(path)-1] // pop from path
-				}
-				continue
-			}
-
-			// Process next child
-			pr2 := children[f.childPos]
-			f.childPos++
-			stack = append(stack, f)
-
-			// Extend path, push b then a
-			path = append(path, []int{pr2.a, pr2.b, id})
-			stack = append(stack, elem{id: pr2.b}, elem{id: pr2.a})
+		for _, pr := range revIdx[id] {
+			newPath := append(path, []int{pr.a, pr.b, id})
+			dfs(pr.a, newPath, visited)
+			dfs(pr.b, newPath, visited)
 		}
 	}
 
-	// 3) Launch each worker, but block if we've hit maxWorkers in flight
+	// spawn one worker per root pair
 	for _, pr := range roots {
-		sem <- struct{}{} // acquire a "slot" (blocks if full)
-		go worker(pr)
+		sem <- struct{}{} // acquire slot
+		wg.Add(1)         // one Add per goroutine
+		go func(pr pair) {
+			defer wg.Done()
+			defer func() { <-sem }() // release slot
+
+			visited := make(map[int]bool)
+			initial := [][]int{{pr.a, pr.b, targetID}}
+			dfs(pr.a, initial, visited)
+			dfs(pr.b, initial, visited)
+		}(pr)
 	}
+
 	wg.Wait()
-
-	if len(out) > maxPaths {
-		out = deduplicateRecipesDFS(out)
-
-		// Limit to maxPaths
-		if len(out) > maxPaths {
-			out = out[:maxPaths]
-		}
-	}
-
 	return out, int(atomic.LoadInt64(&nodes))
 }
 
-// Update the deduplication function as well
-func deduplicateRecipesDFS(recipes []RecipeStep) []RecipeStep {
-	if len(recipes) <= 1 {
-		return recipes
-	}
-
-	result := []RecipeStep{recipes[0]}
-
-	for i := 1; i < len(recipes); i++ {
-		unique := true
-
-		// Compare with all previously accepted recipes
-		for j := 0; j < len(result); j++ {
-			// Compare based on ingredients used
-			// Lower threshold to keep more diverse paths
-			if recipePathsAreSimilar(recipes[i], result[j]) > 0.75 { // Lower from 0.85 to 0.75
-				unique = false
-				break
-			}
-		}
-
-		if unique {
-			result = append(result, recipes[i])
+// isBaseID returns true if id corresponds to one of the base elements.
+func isBaseID(id int, g IndexedGraph) bool {
+	for _, b := range BaseElements {
+		if id == g.NameToID[b] {
+			return true
 		}
 	}
-
-	return result
-}
-
-func recipePathsAreSimilar(r1, r2 RecipeStep) float64 {
-	// Extract all elements from both recipes
-	set1 := make(map[string]bool)
-	set2 := make(map[string]bool)
-
-	// Add elements from first recipe
-	set1[r1.Combo.A] = true
-	set1[r1.Combo.B] = true
-
-	// Add elements from second recipe
-	set2[r2.Combo.A] = true
-	set2[r2.Combo.B] = true
-
-	// Count common elements
-	common := 0
-	for elem := range set1 {
-		if set2[elem] {
-			common++
-		}
-	}
-
-	// Calculate Jaccard similarity
-	totalUnique := len(set1) + len(set2) - common
-	if totalUnique == 0 {
-		return 1.0
-	}
-	return float64(common) / float64(totalUnique)
+	return false
 }
