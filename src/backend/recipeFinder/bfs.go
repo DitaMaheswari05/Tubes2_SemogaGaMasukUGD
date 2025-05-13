@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -82,18 +81,51 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 		for _, neighbor := range graph.Edges[curID] {
 			partnerID := neighbor.PartnerID
 			productID := neighbor.ProductID
-
+		
 			if seen[partnerID] && !seen[productID] {
+				// We found a new product - record path
 				seen[productID] = true
 				prevIDs[productID] = struct{ ParentID, PartnerID int }{
 					ParentID:  curID,
 					PartnerID: partnerID,
 				}
+				
+				// If this is the target, we can stop immediately
+				if productID == targetID {
+					// Create a copy of prevIDs that includes the target we just found
+					finalDiscoveredEdges := copyMap(prevIDs)
+					finalDiscoveredEdges[productID] = struct{ ParentID, PartnerID int }{
+						ParentID:  curID,
+						PartnerID: partnerID,
+					}
+					
+					// Convert to names
+					finalDiscoveredNames := prevIDsToNames(finalDiscoveredEdges, graph)
+					
+					// Create final search step with target found
+					searchSteps = append(searchSteps, SearchStep{
+						CurrentID:       productID, // Use target ID as current
+						CurrentName:     graph.IDToName[productID], // Show target as current element
+						QueueIDs:        queueToSlice(queue),
+						QueueNames:      queueToNameSlice(queue, graph),
+						SeenIDs:         mapKeysToSlice(seen),
+						SeenNames:       mapKeysToNameSlice(seen, graph),
+						DiscoveredEdges: finalDiscoveredEdges, // Include target
+						DiscoveredNames: finalDiscoveredNames, // Include target
+						StepNumber:      nodes + 1,
+						FoundTarget:     true,
+					})
+					
+					// Break out of both loops
+					goto TargetFound
+				}
+				
 				queue.PushBack(productID)
 			}
 		}
 	}
 
+	TargetFound:
 	// Convert integer results to ProductToIngredients
 	recipes := make(ProductToIngredients)
 	for productID, info := range prevIDs {
@@ -106,7 +138,6 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 				A: parentName,
 				B: partnerName,
 			},
-			// Path is nil here since we're not tracking full paths in this function
 		}
 	}
 
@@ -304,171 +335,4 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 		currLevel = nextLevel
 	}
 	return RecipeStep{}, nodes
-}
-
-/* -------------------------------------------------------------------------
-Multi-Recipe BFS (Some Paths in sequence)
-*/
-// RangePathsIndexed returns up to `limit` distinct paths to `targetID`
-func RangePathsIndexed(targetID int, start, limit int, g IndexedGraph) ([]RecipeStep, int) {
-	// If we're looking for the first path (start=0), use the efficient single-path algorithm
-	if start == 0 && limit > 0 {
-		// Get single path efficiently first
-		singleRecipes, _, nodes := IndexedBFSBuild(g.IDToName[targetID], g)
-
-		// If we found a path, convert it to RecipeStep format
-		if len(singleRecipes) > 0 {
-			// Extract the first recipe path
-			path := extractPathFromRecipes(targetID, singleRecipes, g)
-
-			// Check if the extracted path has valid content
-			if len(path.Path) > 0 {
-				firstPath := []RecipeStep{path}
-
-				// If we only need one path, return it immediately
-				if limit == 1 {
-					return firstPath, nodes
-				}
-
-				// Otherwise, get additional paths starting from the second path (limit-1 more)
-				additionalPaths, additionalNodes := findAdditionalPaths(targetID, 0, limit-1, g)
-
-				// Combine the first path with additional paths
-				result := append(firstPath, additionalPaths...)
-
-				// Apply path deduplication
-				result = deduplicateRecipes(result)
-
-				return result, nodes + additionalNodes
-			}
-		}
-	}
-
-	// Fall back to standard multi-path search
-	paths, nodes := findAdditionalPaths(targetID, start, limit, g)
-	return deduplicateRecipes(paths), nodes
-}
-
-// Deduplicates recipes based on structure similarity
-func deduplicateRecipes(recipes []RecipeStep) []RecipeStep {
-	if len(recipes) <= 1 {
-		return recipes
-	}
-
-	result := []RecipeStep{recipes[0]}
-
-	for i := 1; i < len(recipes); i++ {
-		unique := true
-
-		// Compare with all previously accepted recipes
-		for j := 0; j < len(result); j++ {
-			// If recipes share more than 80% of their structure, consider them duplicates
-			if pathSimilarity(recipes[i].Path, result[j].Path) > 0.9 {
-				unique = false
-				break
-			}
-		}
-
-		if unique {
-			result = append(result, recipes[i])
-		}
-	}
-
-	return result
-}
-
-// TreeSignature creates a structural signature for deduplication
-func treeSignature(tree *RecipeNode) string {
-	if tree == nil {
-		return ""
-	}
-
-	// If it's a leaf node
-	if len(tree.Children) == 0 {
-		return tree.Name
-	}
-
-	// Get signatures for children and sort them
-	childSigs := make([]string, len(tree.Children))
-	for i, child := range tree.Children {
-		childSigs[i] = treeSignature(child)
-	}
-	sort.Strings(childSigs) // Sort to make order-independent
-
-	// Combine into a unique signature
-	return fmt.Sprintf("%s(%s)", tree.Name, strings.Join(childSigs, "|"))
-}
-
-// Improved deduplication of recipe trees
-func DeduplicateRecipeTrees(trees []*RecipeNode) []*RecipeNode {
-	if len(trees) <= 1 {
-		return trees
-	}
-
-	// Map to track signatures we've seen
-	seen := make(map[string]bool)
-	result := make([]*RecipeNode, 0, len(trees))
-
-	for _, tree := range trees {
-		sig := treeSignature(tree)
-		if !seen[sig] {
-			seen[sig] = true
-			result = append(result, tree)
-		}
-	}
-
-	return result
-}
-
-// Calculate similarity between two paths
-func pathSimilarity(path1, path2 [][]string) float64 {
-	if len(path1) == 0 || len(path2) == 0 {
-		return 0
-	}
-
-	// Create sets of unique elements in each path
-	set1 := make(map[string]bool)
-	set2 := make(map[string]bool)
-
-	for _, step := range path1 {
-		for _, elem := range step {
-			set1[elem] = true
-		}
-	}
-
-	for _, step := range path2 {
-		for _, elem := range step {
-			set2[elem] = true
-		}
-	}
-
-	// Count common elements
-	common := 0
-	for elem := range set1 {
-		if set2[elem] {
-			common++
-		}
-	}
-
-	// Calculate Jaccard similarity: intersection/union
-	return float64(common) / float64(len(set1)+len(set2)-common)
-}
-
-// findAdditionalPaths implements the standard multi-path search
-func findAdditionalPaths(targetID, start, limit int, g IndexedGraph) ([]RecipeStep, int) {
-	// This is your current implementation of finding multiple paths
-	out := make([]RecipeStep, 0, limit)
-	totalNodesVisited := 0
-
-	for k := 0; k < limit; k++ {
-		step, nodesVisited := findKthPathIndexed(targetID, start+k, g)
-		totalNodesVisited += nodesVisited
-
-		if step.Path == nil {
-			break // BFS exhausted
-		}
-		out = append(out, step)
-	}
-
-	return out, totalNodesVisited
 }

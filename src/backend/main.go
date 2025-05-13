@@ -197,39 +197,40 @@ func main() {
 		//-----------------------------------------------------------------
 		default: // bfs
 			if multi {
-				desired := int(maxPaths)
-				batch := 4 // get 20 paths per iteration
+				// Get multiple paths using the new target→base approach
+				completePaths, searchSteps, nodes := recipeFinder.ReversedMultiPathBFSParallel(target, recipeFinder.GlobalIndexedGraph, int(maxPaths) * 5)
+				
+				resp.NodesVisited = nodes
+				resp.SearchSteps = searchSteps // Store search steps for visualization
+					
+				// Convert complete paths to trees
 				printed := map[string]bool{}
 				var trees []*recipeFinder.RecipeNode
-				skip := 0
-				for len(trees) < desired*2 && skip < 20 {
-					infos, nodes := recipeFinder.RangePathsIndexed(recipeFinder.GlobalIndexedGraph.NameToID[target], skip, batch, recipeFinder.GlobalIndexedGraph)
-					resp.NodesVisited += nodes
-					if len(infos) == 0 {
-						break
+					
+				// Each complete path is already a ProductToIngredients map
+				for _, path := range completePaths {
+					tree := recipeFinder.BuildTree(target, path)
+					
+					// Deduplicate while building
+					key, _ := json.Marshal(tree)
+					if !printed[string(key)] {
+						printed[string(key)] = true
+						trees = append(trees, tree)
 					}
-					skip += len(infos)
-					t := infosToTrees(target, infos, printed)
-					trees = append(trees, t...)
 				}
+					
 				if len(trees) > 0 {
-					// Apply tree-based deduplication
+					// Apply tree-based deduplication as a final step
 					trees = recipeFinder.DeduplicateRecipeTrees(trees)
 					resp.Tree = trees
 				}
 				resp.Tree = trees
 			} else {
+				// Single path BFS (unchanged)
 				prev, searchSteps, nodes := recipeFinder.IndexedBFSBuild(target, recipeFinder.GlobalIndexedGraph)
 				resp.NodesVisited = nodes
 				resp.Tree = recipeFinder.BuildTree(target, prev)
 				resp.SearchSteps = searchSteps
-
-				// Add this before sending response
-				log.Printf("SearchSteps length: %d", len(searchSteps))
-				if len(searchSteps) > 0 {
-					stepJSON, _ := json.Marshal(searchSteps[0])
-					log.Printf("First step sample: %s", string(stepJSON))
-				}
 			}
 		}
 

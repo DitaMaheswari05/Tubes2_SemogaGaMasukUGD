@@ -18,11 +18,8 @@ is essential for target-to-base DFS traversal.
 type pair struct{ a, b int } // Represents an ingredient pair (a,b)
 type revIndex map[int][]pair // Maps product ID to all ingredient pairs
 
-var revIdx revIndex // Global reverse index: productID → pairs
 
 // BuildReverseIndex creates a reverse mapping from products to their ingredient pairs.
-// This should be called once at startup before running DFS algorithms.
-// The index is sorted by ingredient tier sum (lower tiers first) to optimize search.
 func BuildReverseIndex(g IndexedGraph) {
 	idx := make(revIndex)
 
