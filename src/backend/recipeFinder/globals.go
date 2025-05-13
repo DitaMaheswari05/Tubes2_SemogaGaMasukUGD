@@ -58,3 +58,5 @@ var GlobalIndexedGraph IndexedGraph
 
 // Global variable to store the catalog
 var GlobalCatalog Catalog
+
+var revIdx revIndex // Global reverse index: productID → pairs

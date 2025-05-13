@@ -52,6 +52,13 @@ function LiveSearchVisualizer({ searchSteps, targetElement }) {
             setIsPlaying(false);
             return prev;
           }
+          const nextStep = searchSteps[prev + 1];
+          const foundTarget = nextStep?.foundTarget;
+
+          // If we found the target, make sure to show that step
+          if (foundTarget) {
+            setIsPlaying(false); // Auto-pause when target is found
+          }
           return prev + 1;
         });
       }, playbackSpeed);
@@ -88,6 +95,39 @@ function LiveSearchVisualizer({ searchSteps, targetElement }) {
   return (
     <div className="live-search-visualizer">
       <h3>Search Visualization for "{targetElement}"</h3>
+
+      <div
+        className="step-info"
+        style={{
+          backgroundColor: "#f5f5f5",
+          padding: "10px",
+          borderRadius: "5px",
+          marginBottom: "20px",
+        }}>
+        <div>
+          <strong>Step:</strong> {step.step} of {searchSteps.length - 1}
+        </div>
+        <div>
+          <strong>Current Element:</strong> {step.current || "None"}
+        </div>
+        <div>
+          <strong>Queue Size:</strong> {step.queue?.length || 0} elements
+        </div>
+        <div>
+          <strong>Queue Elements: </strong> {(step.queue || []).join(", ") || "Empty"}
+        </div>
+        <div>
+          <strong>Discovered Objects </strong> {Object.keys(discovered).length}:
+        </div>
+        <div style={{ maxHeight: "200px", overflow: "auto", fontSize: "12px" }}>
+          <pre style={{ backgroundColor: "#f5f5f5", padding: "10px" }}>
+            {JSON.stringify(discovered, null, 2) || "No discoveries"}
+          </pre>
+        </div>
+        <div>
+          <strong>Target Found:</strong> {step.found_target === true ? "Yes! 🎉" : "Still searching..."}
+        </div>
+      </div>
       <div
         className="progress-bar"
         style={{
@@ -149,47 +189,6 @@ function LiveSearchVisualizer({ searchSteps, targetElement }) {
             value={playbackSpeed}
             onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
           />
-        </div>
-      </div>
-      <div
-        className="step-info"
-        style={{
-          backgroundColor: "#f5f5f5",
-          padding: "10px",
-          borderRadius: "5px",
-          marginBottom: "20px",
-        }}>
-        <div>
-          <strong>Step:</strong> {step.step} of {searchSteps.length}
-        </div>
-        <div>
-          <strong>Current Element:</strong> {step.current || "None"}
-        </div>
-        <div>
-          <strong>Queue Size:</strong> {step.queue?.length || 0} elements
-        </div>
-        <div>
-          <strong>Target Found:</strong> {step.foundTarget ? "Yes! 🎉" : "Still searching..."}
-        </div>
-      </div>
-      <div style={{ marginTop: "20px", marginBottom: "20px", border: "1px solid #ccc", padding: "15px", borderRadius: "5px" }}>
-        <h4>Debug Information:</h4>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "20px" }}>
-          <div style={{ flex: "1 1 300px" }}>
-            <h5>Step Information:</h5>
-            <p>Step Number: {step.step || currentStep}</p>
-            <p>Current Element: {step.current || "None"}</p>
-            <p>Queue Elements: {(step.queue || []).join(", ") || "Empty"}</p>
-            <p>Target Found: {step.foundTarget ? "Yes" : "No"}</p>
-          </div>
-          <div style={{ flex: "1 1 300px" }}>
-            <h5>Discovered Objects ({Object.keys(discovered).length}):</h5>
-            <div style={{ maxHeight: "200px", overflow: "auto", fontSize: "12px" }}>
-              <pre style={{ backgroundColor: "#f5f5f5", padding: "10px" }}>
-                {JSON.stringify(discovered, null, 2) || "No discoveries"}
-              </pre>
-            </div>
-          </div>
         </div>
       </div>
       <div className="visualization-container">

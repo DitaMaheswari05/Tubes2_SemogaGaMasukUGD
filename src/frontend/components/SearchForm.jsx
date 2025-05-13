@@ -30,12 +30,6 @@ function SearchForm({
             disabled={isLoading}>
             Depth-First Search (DFS)
           </button>
-          <button
-            className={`algorithm-btn ${algorithm === "bidirectional" ? "active" : ""}`}
-            onClick={() => setAlgorithm("bidirectional")}
-            disabled={isLoading}>
-            Bidirectional Search
-          </button>
         </div>
       </div>
 
@@ -46,7 +40,7 @@ function SearchForm({
             className={`toggle-btn ${multiMode === false ? "active" : ""}`}
             onClick={() => setMultiMode(false)}
             disabled={isLoading}>
-            Shortest Recipe
+            Single Recipe
           </button>
           <button
             className={`toggle-btn ${multiMode === true ? "active" : ""}`}
