@@ -3,6 +3,7 @@ package recipeFinder
 import (
 	"container/list"
 	"fmt"
+	"hash/fnv"
 	"strings"
 )
 
@@ -195,4 +196,24 @@ func findIngredientsFor(productID int, g IndexedGraph) [][]int {
 	}
 
 	return res
+}
+
+// hashPath generates a hash signature for a specific recipe path.
+// This is used to deduplicate paths that are functionally equivalent.
+func hashPath(p [][]int) uint64 {
+	h := fnv.New64a()
+	var buf [4]byte
+	put := func(v int) {
+		buf[0] = byte(v)
+		buf[1] = byte(v >> 8)
+		buf[2] = byte(v >> 16)
+		buf[3] = byte(v >> 24)
+		_, _ = h.Write(buf[:])
+	}
+	for _, t := range p {
+		put(t[0])
+		put(t[1])
+		put(t[2])
+	}
+	return h.Sum64()
 }

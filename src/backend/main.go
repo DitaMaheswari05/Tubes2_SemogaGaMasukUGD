@@ -30,6 +30,8 @@ const (
 var (
 	// If -scrape flag is set, run Fandom web-scraper and write new recipe.json
 	doScrape = flag.Bool("scrape", false, "rebuild recipe.json by scraping")
+	// If -download-svgs flag is set, download SVGs during scrapes
+	downloadSVGs = flag.Bool("download-svgs", false, "Download SVGs during scrape")
 	// HTTP server address & port
 	addr = flag.String("addr", ":8080", "listen address")
 )
@@ -45,7 +47,8 @@ func main() {
 	// ---------------------------------------------------------------------
 	if *doScrape {
 		// Scrape and assign directly to global catalog
-		recipeFinder.GlobalCatalog, err = recipeFinder.ScrapeAll()
+		recipeFinder.GlobalCatalog, err = recipeFinder.ScrapeAll(*downloadSVGs)
+
 		if err != nil {
 			log.Fatalf("scrape failed: %v", err)
 		}
@@ -62,16 +65,16 @@ func main() {
 		// 2) Read existing recipe.json
 		// ---------------------------------------------------------------------
 		rawJSON, err = os.ReadFile(jsonFile)
-		if err != nil {
-			log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
-		}
+		// if err != nil {
+		// 	log.Fatalf("cannot read %s: %v\nRun with -scrape first.", jsonFile, err)
+		// }
 
-		// ---------------------------------------------------------------------
-		// 3) Parse JSON → Catalog struct (only if we didn't just scrape)
-		// ---------------------------------------------------------------------
-		if err := json.Unmarshal(rawJSON, &recipeFinder.GlobalCatalog); err != nil {
-			log.Fatalf("invalid JSON: %v", err)
-		}
+		// // ---------------------------------------------------------------------
+		// // 3) Parse JSON → Catalog struct (only if we didn't just scrape)
+		// // ---------------------------------------------------------------------
+		// if err := json.Unmarshal(rawJSON, &recipeFinder.GlobalCatalog); err != nil {
+		// 	log.Fatalf("invalid JSON: %v", err)
+		// }
 	}
 
 	// Sort tiers in catalog - "Starting" first, then numeric tiers in order
@@ -256,7 +259,7 @@ func main() {
 		log.Println("Scrape requested via API")
 
 		// Run the same scraping code as with the -scrape flag
-		catalog, err := recipeFinder.ScrapeAll()
+		catalog, err := recipeFinder.ScrapeAll(*downloadSVGs)
 		if err != nil {
 			log.Printf("API scrape failed: %v", err)
 			http.Error(w, "Failed to scrape data: "+err.Error(), http.StatusInternalServerError)
