@@ -10,6 +10,8 @@ WORKDIR /app
 COPY package*.json ./
 
 # Set environment variable for production
+ARG BACKEND_URL
+ENV BACKEND_URL=$BACKEND_URL
 ENV NODE_ENV=production
 
 # Install dependencies

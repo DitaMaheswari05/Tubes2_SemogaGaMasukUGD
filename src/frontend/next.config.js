@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
+
+console.log('Backend URL:', process.env.BACKEND_URL); 
+
 const nextConfig = {
   async rewrites() {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8080'; // Default to localhost for local development
     return [
       {
         source: '/api/elements',
