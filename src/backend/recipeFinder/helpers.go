@@ -3,6 +3,7 @@ package recipeFinder
 import (
 	"container/list"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -52,6 +53,85 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+
+// Improved deduplication of recipe trees
+func DeduplicateRecipeTrees(trees []*RecipeNode) []*RecipeNode {
+	if len(trees) <= 1 {
+		return trees
+	}
+
+	// Map to track signatures we've seen
+	seen := make(map[string]bool)
+	result := make([]*RecipeNode, 0, len(trees))
+
+	for _, tree := range trees {
+		sig := treeSignature(tree)
+		if !seen[sig] {
+			seen[sig] = true
+			result = append(result, tree)
+		}
+	}
+
+	return result
+}
+
+// Calculate similarity between two paths
+func pathSimilarity(path1, path2 [][]string) float64 {
+	if len(path1) == 0 || len(path2) == 0 {
+		return 0
+	}
+
+	// Create sets of unique elements in each path
+	set1 := make(map[string]bool)
+	set2 := make(map[string]bool)
+
+	for _, step := range path1 {
+		for _, elem := range step {
+			set1[elem] = true
+		}
+	}
+
+	for _, step := range path2 {
+		for _, elem := range step {
+			set2[elem] = true
+		}
+	}
+
+	// Count common elements
+	common := 0
+	for elem := range set1 {
+		if set2[elem] {
+			common++
+		}
+	}
+
+	// Calculate Jaccard similarity: intersection/union
+	return float64(common) / float64(len(set1)+len(set2)-common)
+}
+
+
+// TreeSignature creates a structural signature for deduplication
+func treeSignature(tree *RecipeNode) string {
+	if tree == nil {
+		return ""
+	}
+
+	// If it's a leaf node
+	if len(tree.Children) == 0 {
+		return tree.Name
+	}
+
+	// Get signatures for children and sort them
+	childSigs := make([]string, len(tree.Children))
+	for i, child := range tree.Children {
+		childSigs[i] = treeSignature(child)
+	}
+	sort.Strings(childSigs) // Sort to make order-independent
+
+	// Combine into a unique signature
+	return fmt.Sprintf("%s(%s)", tree.Name, strings.Join(childSigs, "|"))
 }
 
 /*

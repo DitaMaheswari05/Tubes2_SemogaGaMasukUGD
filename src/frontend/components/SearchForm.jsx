@@ -46,7 +46,7 @@ function SearchForm({
             className={`toggle-btn ${multiMode === false ? "active" : ""}`}
             onClick={() => setMultiMode(false)}
             disabled={isLoading}>
-            Shortest Recipe
+            Single Recipe
           </button>
           <button
             className={`toggle-btn ${multiMode === true ? "active" : ""}`}
