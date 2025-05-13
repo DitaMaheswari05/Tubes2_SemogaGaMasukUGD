@@ -2,7 +2,6 @@ package recipeFinder
 
 import (
 	"context"
-	"hash/fnv"
 	"runtime"
 	"sort"
 	"sync"
@@ -177,40 +176,19 @@ func DFSBuildTargetToBase(target string, g IndexedGraph) (ProductToIngredients, 
 	return recipes, nodes
 }
 
-// hashPath generates a hash signature for a specific recipe path.
-// This is used to deduplicate paths that are functionally equivalent.
-// Parameters:
-//   - p: Slice of [ingredientA, ingredientB, product] triples representing a path
-//
-// Returns:
-//   - uint64: Hash value representing the path signature
-func hashPath(p [][]int) uint64 {
-	h := fnv.New64a()
-	var buf [4]byte
-	put := func(v int) {
-		buf[0] = byte(v)
-		buf[1] = byte(v >> 8)
-		buf[2] = byte(v >> 16)
-		buf[3] = byte(v >> 24)
-		_, _ = h.Write(buf[:])
-	}
-	for _, t := range p {
-		put(t[0])
-		put(t[1])
-		put(t[2])
-	}
-	return h.Sum64()
-}
-
 /*
 -------------------------------------------------------------------------
 Multi-path DFS (iterative/parallel)
 */
 // RangeDFSPaths finds up to maxPaths unique DFS recipes, exploring each top-level
-// ingredient-pair for `target` in parallel and cancelling early once we hit the limit.
-// RangeDFSPaths runs a concurrent, stack‐based DFS across root pairs.
-// but never more than NumCPU() workers in flight at a time.
-// Uses an iterative, stack-based DFS approach to avoid recursion stack overflow.
+//
+// For each reverse-combination (root pair) that produces the target, a separate
+// goroutine is launched to recursively explore all possible ingredient paths back
+// to base elements. A bounded worker pool (limited to NumCPU()) ensures controlled
+// parallelism.
+//
+// Each path is deduplicated using a hash signature to guarantee uniqueness.
+// Once maxPaths unique results are found, all active searches are cancelled early.
 func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, int) {
 	targetID := g.NameToID[target]
 	roots := revIdx[targetID]
