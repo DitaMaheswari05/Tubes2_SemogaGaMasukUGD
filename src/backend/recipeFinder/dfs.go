@@ -200,14 +200,12 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 		nodes   int64
 	)
 
-	// bound concurrent workers
 	sem := make(chan struct{}, runtime.NumCPU())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
 
-	// recursive DFS
 	var dfs func(id int, path [][]int, visited map[int]bool)
 	dfs = func(id int, path [][]int, visited map[int]bool) {
 		select {
@@ -247,13 +245,12 @@ func RangeDFSPaths(target string, maxPaths int, g IndexedGraph) ([]RecipeStep, i
 		}
 	}
 
-	// spawn one worker per root pair
 	for _, pr := range roots {
-		sem <- struct{}{} // acquire slot
-		wg.Add(1)         // one Add per goroutine
+		sem <- struct{}{}
+		wg.Add(1)
 		go func(pr pair) {
 			defer wg.Done()
-			defer func() { <-sem }() // release slot
+			defer func() { <-sem }()
 
 			visited := make(map[int]bool)
 			initial := [][]int{{pr.a, pr.b, targetID}}
