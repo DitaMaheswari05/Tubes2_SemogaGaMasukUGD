@@ -15,7 +15,7 @@ export function drawEntireRecipe(ctx, recipe, startX, startY, index) {
 
   const drawRecipeTree = (node, depth, y) => {
     if (!node) return 0;
-    
+
     const xSpacing = 120;
     let x;
 
@@ -118,17 +118,34 @@ function RecipeAtlas({ recipes, elementName }) {
 
     // Draw background
     ctx.fillStyle = "#faf9f4";
-    ctx.fillRect(-10000, -10000, 20000, 20000); // Large background
+    ctx.fillRect(-1000000, -1000000, 2000000, 2000000);
 
-    // Calculate layout for multiple recipes
-    const spacing = 800;
-    let totalWidth = recipes.length * spacing;
-    let startX = -totalWidth / 2 + spacing / 2;
+    // Calculate grid layout
+    const count = recipes.length;
+    const gridSize = Math.ceil(Math.sqrt(count));
 
-    // Draw all recipes
+    // Spacing between recipes (adjust based on complexity)
+    const spacing = calculateSpacing();
+    const horizontalSpacing = spacing.horizontal;
+    const verticalSpacing = spacing.vertical;
+
+    // Total grid dimensions
+    const gridWidth = gridSize * horizontalSpacing;
+    const gridHeight = gridSize * verticalSpacing;
+
+    // Starting position (center the grid)
+    const startX = -gridWidth / 2 + horizontalSpacing / 2;
+    const startY = -gridHeight / 2 + verticalSpacing / 2;
+
+    // Draw all recipes in a grid pattern
     recipes.forEach((recipe, i) => {
-      const x = startX + i * spacing;
-      drawEntireRecipe(ctx, recipe, x, 100, i);
+      const row = Math.floor(i / gridSize);
+      const col = i % gridSize;
+
+      const x = startX + col * horizontalSpacing;
+      const y = startY + row * verticalSpacing;
+
+      drawEntireRecipe(ctx, recipe, x, y, i);
     });
   }, [recipes, scale, position]);
 
@@ -173,8 +190,45 @@ function RecipeAtlas({ recipes, elementName }) {
     });
   };
 
-  // Drawing functions (similar to RecipeTree but adapted for multiple recipes)
-  // Drop these into RecipeAtlas.jsx
+  // Calculate dynamic spacing based on recipe complexity
+  const calculateSpacing = () => {
+    // Initialize with reasonable minimum values
+    let maxWidth = 800;
+    let maxHeight = 600;
+
+    // Analyze each recipe tree
+    recipes.forEach((recipe) => {
+      // Calculate width by counting leaf nodes
+      const countLeaves = (node) => {
+        if (!node) return 0;
+        if (!node.children || node.children.length === 0) return 1;
+        return node.children.reduce((sum, child) => sum + countLeaves(child), 0);
+      };
+
+      // Calculate depth by finding longest path
+      const findDepth = (node) => {
+        if (!node) return 0;
+        if (!node.children || node.children.length === 0) return 1;
+        return 1 + Math.max(...node.children.map(findDepth));
+      };
+
+      const leaves = countLeaves(recipe);
+      const depth = findDepth(recipe);
+
+      // Each leaf needs ~120px, each level needs ~100px
+      const treeWidth = Math.max(leaves * 150, 500);
+      const treeHeight = Math.max(depth * 120, 400);
+
+      maxWidth = Math.max(maxWidth, treeWidth);
+      maxHeight = Math.max(maxHeight, treeHeight);
+    });
+
+    // Add padding between trees
+    return {
+      horizontal: maxWidth + 200, // Extra spacing between columns
+      vertical: maxHeight + 200, // Extra spacing between rows
+    };
+  };
 
   const drawEntireRecipe = (ctx, recipe, startX, startY, index) => {
     // Draw recipe title
@@ -188,7 +242,7 @@ function RecipeAtlas({ recipes, elementName }) {
     let nextX = 0;
 
     const drawRecipeTree = (node, depth, y) => {
-      const xSpacing = 120;
+      const xSpacing = 125;
       let x;
 
       // leaf node
@@ -196,18 +250,18 @@ function RecipeAtlas({ recipes, elementName }) {
         x = nextX * xSpacing;
         nextX++;
       } else {
-        const leftX = drawRecipeTree(node.children[0], depth + 1, y + 100);
-        const rightX = drawRecipeTree(node.children[1], depth + 1, y + 100);
+        const leftX = drawRecipeTree(node.children[0], depth + 1, y + 75);
+        const rightX = drawRecipeTree(node.children[1], depth + 1, y + 75);
         x = (leftX + rightX) / 2;
 
         ctx.beginPath();
         ctx.moveTo(x, y + 40);
-        ctx.lineTo(leftX, y + 100);
+        ctx.lineTo(leftX, y + 75);
         ctx.stroke();
 
         ctx.beginPath();
         ctx.moveTo(x, y + 40);
-        ctx.lineTo(rightX, y + 100);
+        ctx.lineTo(rightX, y + 75);
         ctx.stroke();
 
         ctx.font = "20px Arial";
@@ -266,34 +320,6 @@ function RecipeAtlas({ recipes, elementName }) {
 
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", overflow: "hidden" }}>
-      <div
-        className="controls"
-        style={{
-          position: "absolute",
-          top: 20,
-          left: 20,
-          zIndex: 1000,
-          background: "rgba(255,255,255,0.8)",
-          padding: 10,
-          borderRadius: 5,
-        }}>
-        <h2>All Recipes for {elementName}</h2>
-        <div>
-          <button onClick={() => setScale((prev) => Math.min(prev + 0.1, 3))}>Zoom In</button>
-          <button onClick={() => setScale((prev) => Math.max(prev - 0.1, 0.1))}>Zoom Out</button>
-          <button
-            onClick={() => {
-              setScale(1);
-              setPosition({ x: 0, y: 0 });
-            }}>
-            Reset View
-          </button>
-        </div>
-        <Link href="/" style={{ display: "block", marginTop: 10 }}>
-          Back to Finder
-        </Link>
-      </div>
-
       <canvas
         ref={canvasRef}
         onMouseDown={handleMouseDown}

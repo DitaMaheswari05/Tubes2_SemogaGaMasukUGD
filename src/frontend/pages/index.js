@@ -8,7 +8,6 @@ import RecipeTreeText from "../components/RecipeTreeText";
 import RecipeTree from "../components/RecipeTree";
 import LiveSearchVisualizer from "../components/LiveSearchVisualizer";
 import RecipeAtlas from "../components/RecipeAtlas";
-import RecipeAtlasUnified from "../components/RecipeAtlasUnified";
 
 // tambahan function buat convert tree
 const convertTree = (node) => {
@@ -222,32 +221,56 @@ export default function Index() {
                     }}>
                     Atlas
                   </button>
-                  <button
-                    onClick={() => setViewMode("unified")}
-                    style={{
-                      backgroundColor: viewMode === "unified" ? "#1a7dc5" : "#e0e0e0",
-                      color: viewMode === "unified" ? "white" : "black",
-                      padding: "8px 16px",
-                      border: "none",
-                      borderRadius: "0 0 0 4px",
-                      cursor: "pointer",
-                    }}>
-                    Unified
-                  </button>
                 </div>
               )}
 
               {/* choose view */}
-              {viewMode === "unified" ? (
-                <RecipeAtlasUnified recipes={results} elementName={submittedTarget} />
-              ) : viewMode === "atlas" ? (
-                <RecipeAtlas recipes={results} elementName={submittedTarget} />
+              {viewMode === "atlas" ? (
+                <div
+                  style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    width: "100vw",
+                    height: "100vh",
+                    overflow: "visible",
+                    zIndex: 1000,
+                  }}>
+                  {/* Navigation controls - positioned above the canvas */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 20,
+                      left: 20,
+                      zIndex: 1001,
+                      backgroundColor: "rgba(255,255,255,0.9)",
+                      padding: "10px 15px",
+                      borderRadius: "4px",
+                      boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
+                    }}>
+                    <button
+                      onClick={() => setViewMode("result")}
+                      style={{
+                        padding: "8px 16px",
+                        backgroundColor: "#1a7dc5",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                      }}>
+                      ← Back
+                    </button>
+                  </div>
+
+                  <RecipeAtlas recipes={results} elementName={submittedTarget} />
+                </div>
               ) : viewMode === "process" ? (
                 <LiveSearchVisualizer searchSteps={response.search_steps} targetElement={submittedTarget} />
               ) : results.length > 0 ? (
                 <div className="recipe-trees">
                   <h2>
-                    Found {results.length} recipe{results.length !== 1 ? "s" : ""} for {submittedTarget}
+                    Found {results.length} recipe
+                    {results.length !== 1 ? "s" : ""} for {submittedTarget}
                   </h2>
                   {results.map((tree, i) => (
                     <RecipeTree key={i} path={convertTree(tree)} index={i} />
