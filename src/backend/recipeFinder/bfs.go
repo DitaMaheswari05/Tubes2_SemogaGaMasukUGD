@@ -263,7 +263,7 @@ func findKthPathIndexed(targetID, skip int, g IndexedGraph) (RecipeStep, int) {
 					np := appendCopyPath(st.path, st.elem, partnerID, productID)
 
 					// Check path canonicalization to avoid duplicates
-					sig := canonicalHash(np)
+					sig := fmt.Sprintf("%d", hashPath(np))
 					if !checkAndAdd(sig) {
 						continue
 					}
