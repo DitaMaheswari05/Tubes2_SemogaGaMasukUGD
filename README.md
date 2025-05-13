@@ -2,13 +2,15 @@
 
 ## BE & FE
 `src/backend`: Go (serves recipe.json & SVGs)  
-`src/frontend`: Next.js
+`src/frontend`: React.js
 
 ## Prereq
 - Go ≥ 1.18 (for non-Docker installation)
 - Node.js ≥ 16 & npm (for non-Docker installation)
 - Docker and Docker Compose (for Docker installation)
 - (On Windows) Use WSL or a Linux shell so that paths & exec bits work
+
+# App Installation & Usage
 
 ## Online Access
 You can access the deployed application online at [https://tubes2-semoga-ga-masuk-ugd.vercel.app/](https://tubes2-semoga-ga-masuk-ugd.vercel.app/).
@@ -62,7 +64,7 @@ Once Docker is installed and running:
    ```
 3. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-## How to use the app?
+# How to use the app?
 1. Access the app (home page)
 2. Click Scrape All
 3. Enjoy!
