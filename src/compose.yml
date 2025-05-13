@@ -3,37 +3,30 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: recipe-backend
     ports:
       - "8080:8080"
     volumes:
       - ./backend/json:/app/json
+      - ./backend/svgs:/app/svgs
     environment:
       - GO_ENV=production
-    restart: unless-stopped
+    command: ["./main"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://backend:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: recipe-frontend
+      args:
+        - BACKEND_URL=http://backend:8080
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - BACKEND_URL=http://backend:8080
     depends_on:
       - backend
-    develop:
-      watch:
-        - path: ./frontend/package.json
-          action: rebuild
-        - path: ./frontend/next.config.mjs
-          action: rebuild
-        - path: ./frontend/package-lock.json
-          action: rebuild
-        - path: ./frontend/tailwind.config.ts
-          action: rebuild
-        - path: ./frontend
-          target: /app
-          action: sync
-    restart: unless-stopped
