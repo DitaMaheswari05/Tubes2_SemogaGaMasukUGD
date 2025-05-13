@@ -39,18 +39,6 @@ export default function Index() {
   const [viewMode, setViewMode] = useState("result");
   const [showAtlas, setShowAtlas] = useState(false);
 
-  //   useEffect(() => {
-  //     fetch("/api/elements")
-  //       .then((res) => res.json())
-  //       .then((data) => {
-  //         setAvailableElements(data.elements || []);
-  //       })
-  //       .catch((err) => {
-  //         console.error("Failed to load elements:", err);
-  //         setAvailableElements([]);
-  //       });
-  //   }, []);
-
   const handleSearch = async () => {
     if (!targetElement) return;
 

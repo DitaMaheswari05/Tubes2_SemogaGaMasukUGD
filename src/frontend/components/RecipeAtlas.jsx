@@ -171,7 +171,9 @@ function RecipeAtlas({ recipes, elementName }) {
   // Mouse wheel for zooming
   const handleWheel = (e) => {
     e.preventDefault();
-    const delta = -Math.sign(e.deltaY) * 0.1;
+
+    const delta = -Math.sign(e.deltaY) * 0.05;
+
     setScale((prevScale) => {
       const newScale = Math.max(0.1, Math.min(3, prevScale + delta));
 
