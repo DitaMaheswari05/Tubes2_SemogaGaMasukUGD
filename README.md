@@ -1,5 +1,13 @@
 # Tubes2_SemogaGaMasukUGD
 
+## Project Overview
+
+Little Alchemy 2 is a web-based game where players combine four basic elements (air, earth, fire, water) to create 720 derivative elements through drag-and-drop mechanics. Valid combinations yield new elements; invalid ones do nothing. This project implements algorithms to solve the game by finding recipes for target elements.
+
+Breadth First Search (BFS) uses a queue to explore a graph level by level, starting from basic elements. It systematically combines elements to find the shortest path to a target, ideal for exhaustive exploration.
+
+Depth First Search (DFS) uses a stack to dive deeply into one branch of the graph before backtracking. Starting from the target element, it decomposes it into its components, efficiently finding a valid recipe path.
+
 ## BE & FE
 `src/backend`: Go (serves recipe.json & SVGs)  
 `src/frontend`: React.js
