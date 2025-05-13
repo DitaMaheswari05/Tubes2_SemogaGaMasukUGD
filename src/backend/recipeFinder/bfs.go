@@ -138,7 +138,6 @@ func IndexedBFSBuild(targetName string, graph IndexedGraph) (ProductToIngredient
 				A: parentName,
 				B: partnerName,
 			},
-			// Path is nil here since we're not tracking full paths in this function
 		}
 	}
 

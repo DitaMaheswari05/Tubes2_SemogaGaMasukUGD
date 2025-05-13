@@ -195,8 +195,7 @@ func main() {
 		default: // bfs
 			if multi {
 				// Get multiple paths using the new target→base approach
-				completePaths, searchSteps, nodes := recipeFinder.ReversedMultiPathBFS(
-					target, recipeFinder.GlobalIndexedGraph, int(maxPaths) * 3)
+				completePaths, searchSteps, nodes := recipeFinder.ReversedMultiPathBFSParallel(target, recipeFinder.GlobalIndexedGraph, int(maxPaths) * 5)
 				
 				resp.NodesVisited = nodes
 				resp.SearchSteps = searchSteps // Store search steps for visualization

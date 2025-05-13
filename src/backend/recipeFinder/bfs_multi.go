@@ -2,8 +2,10 @@ package recipeFinder
 
 import (
 	"container/list"
+	"context"
 	"sort"
 	"strings"
+	"sync"
 )
 
 
@@ -296,4 +298,374 @@ func createPathHash(path map[string]RecipeStep) string {
     }
     
     return hashBuilder.String()
+}
+
+func shallowCloneExploration(orig PathExploration) PathExploration {
+    // clone Path
+    newPath := make(map[string]RecipeStep, len(orig.Path))
+    for k, v := range orig.Path {
+        newPath[k] = v
+    }
+    // clone IncompletePath
+    newInc := make(map[string]bool, len(orig.IncompletePath))
+    for k := range orig.IncompletePath {
+        newInc[k] = true
+    }
+    // clone Queue
+    newQ := list.New()
+    for e := orig.Queue.Front(); e != nil; e = e.Next() {
+        newQ.PushBack(e.Value)
+    }
+    return PathExploration{
+        Path:           newPath,
+        IncompletePath: newInc,
+        Queue:          newQ,
+        SearchSteps:    nil,               // drop history
+        NodeCount:      orig.NodeCount,
+    }
+}
+
+func ReversedMultiPathBFSParallel(targetName string, graph IndexedGraph, maxPaths int) ([]ProductToIngredients, []SearchStep, int) {
+    targetID := graph.NameToID[targetName]
+    var (
+        completePaths  []ProductToIngredients
+        pathHashes     = make(map[string]bool)
+        allSearchSteps []SearchStep
+        totalNodes     int
+        mu             sync.Mutex
+        wg             sync.WaitGroup
+    )
+
+    reverseGraph := buildReverseGraph(graph)
+
+    initial := PathExploration{
+        Path:           make(map[string]RecipeStep),
+        IncompletePath: map[string]bool{targetName: true},
+        Queue:          list.New(),
+        SearchSteps:    []SearchStep{{ // keep just the very first step
+            CurrentID:  -1, CurrentName: "", QueueIDs: []int{targetID}, QueueNames: []string{targetName},
+            SeenIDs: nil, SeenNames: nil, DiscoveredEdges: nil, DiscoveredNames: nil,
+            StepNumber: 0, FoundTarget: false,
+        }},
+        NodeCount: 0,
+    }
+    initial.Queue.PushBack(targetID)
+
+    active := []PathExploration{initial}
+    limiter := make(chan struct{}, 4) // max 4 goroutines at once
+
+    for len(completePaths) < maxPaths && len(active) > 0 {
+        nextBatch := make([]PathExploration, 0, len(active))
+
+        for _, pe := range active {
+            wg.Add(1)
+            limiter <- struct{}{}
+
+            go func(pe PathExploration) {
+                defer wg.Done()
+                defer func() { <-limiter }()
+
+                const maxSteps = 1000
+                for pe.Queue.Len() > 0 {
+                    front := pe.Queue.Front()
+                    curID := pe.Queue.Remove(front).(int)
+                    name := graph.IDToName[curID]
+                    pe.NodeCount++
+                    totalNodes++
+
+                    // only record up to maxSteps
+                    if len(pe.SearchSteps) < maxSteps {
+                        pe.SearchSteps = append(pe.SearchSteps, SearchStep{
+                            CurrentID:   curID,
+                            CurrentName: name,
+                            QueueIDs:    queueToSlice(pe.Queue),
+                            QueueNames:  queueToNameSlice(pe.Queue, graph),
+                            StepNumber:  pe.NodeCount,
+                            FoundTarget: false,
+                        })
+                    }
+
+                    if isBaseElement(name) {
+                        delete(pe.IncompletePath, name)
+                        continue
+                    }
+
+                    recs := reverseGraph[curID]
+                    if len(recs) > 1 {
+                        // do first recipe in this goroutine
+                        first := recs[0]
+                        pe.Path[name] = RecipeStep{Combo: IngredientCombo{
+                            A: graph.IDToName[first.InputA],
+                            B: graph.IDToName[first.InputB],
+                        }}
+                        delete(pe.IncompletePath, name)
+                        addIngredientToExploration(first.InputA, graph, &pe)
+                        addIngredientToExploration(first.InputB, graph, &pe)
+
+                        for j := 1; j < len(recs); j++ {
+                            r := recs[j]
+                            branch := shallowCloneExploration(pe)
+                            branch.Path[name] = RecipeStep{Combo: IngredientCombo{
+                                A: graph.IDToName[r.InputA],
+                                B: graph.IDToName[r.InputB],
+                            }}
+                            delete(branch.IncompletePath, name)
+                            addIngredientToExploration(r.InputA, graph, &branch)
+                            addIngredientToExploration(r.InputB, graph, &branch)
+
+                            mu.Lock()
+                            nextBatch = append(nextBatch, branch)
+                            mu.Unlock()
+                        }
+                    } else if len(recs) == 1 {
+                        r := recs[0]
+                        pe.Path[name] = RecipeStep{Combo: IngredientCombo{
+                            A: graph.IDToName[r.InputA],
+                            B: graph.IDToName[r.InputB],
+                        }}
+                        delete(pe.IncompletePath, name)
+                        addIngredientToExploration(r.InputA, graph, &pe)
+                        addIngredientToExploration(r.InputB, graph, &pe)
+                    }
+
+                    if len(pe.IncompletePath) == 0 {
+                        hash := createPathHash(pe.Path)
+                        mu.Lock()
+                        if !pathHashes[hash] && len(completePaths) < maxPaths {
+                            pathHashes[hash] = true
+                            completePaths = append(completePaths, pe.Path)
+                            allSearchSteps = append(allSearchSteps, pe.SearchSteps...)
+                        }
+                        mu.Unlock()
+                        return
+                    }
+                }
+            }(pe)
+        }
+
+        wg.Wait()
+        active = nextBatch
+        if len(active) > maxPaths*3 {
+            active = active[:maxPaths*3]
+        }
+    }
+
+    return completePaths, allSearchSteps, totalNodes
+}
+
+// Helper function to process a single exploration
+func processExploration(
+    exploration PathExploration,
+    reverseGraph map[int][]struct{ InputA, InputB int },
+    graph IndexedGraph,
+    resultsChannel chan<- struct {
+        path        map[string]RecipeStep
+        searchSteps []SearchStep
+        nodeCount   int
+    },
+    explorationsQueue chan<- PathExploration,
+    done <-chan struct{},
+    ctx context.Context,
+) {
+    const maxDepth = 50
+    if exploration.NodeCount > maxDepth {
+        return // Too deep, skip this path
+    }
+    
+    // Continue processing until queue is empty
+    for exploration.Queue.Len() > 0 {
+        // Check for cancellation
+        select {
+        case <-done:
+            return
+        case <-ctx.Done():
+            return
+        default:
+            // Continue processing
+        }
+        
+        // Get next element
+        front := exploration.Queue.Front()
+        if front == nil {
+            break // Guard against nil
+        }
+        
+        curID := exploration.Queue.Remove(front).(int)
+        curName := graph.IDToName[curID]
+        
+        exploration.NodeCount++
+        
+        // Record search step
+        if len(exploration.SearchSteps) < 5000 {
+            exploration.SearchSteps = append(exploration.SearchSteps, SearchStep{
+                CurrentID:   curID,
+                CurrentName: curName,
+                QueueIDs:    queueToSlice(exploration.Queue),
+                QueueNames:  queueToNameSlice(exploration.Queue, graph),
+                StepNumber:  exploration.NodeCount,
+                FoundTarget: false, // Not needed for reverse search
+            })
+        }
+        
+        // Skip if base element
+        if isBaseElement(curName) {
+            delete(exploration.IncompletePath, curName)
+            continue
+        }
+        
+        // Get recipes
+        recipes := reverseGraph[curID]
+        if len(recipes) == 0 {
+            continue // No recipes
+        }
+        
+        // Process first recipe in this exploration
+        firstRecipe := recipes[0]
+        exploration.Path[curName] = RecipeStep{
+            Combo: IngredientCombo{
+                A: graph.IDToName[firstRecipe.InputA],
+                B: graph.IDToName[firstRecipe.InputB],
+            },
+        }
+        
+        // Process ingredients
+        delete(exploration.IncompletePath, curName)
+        addIngredientToExploration(firstRecipe.InputA, graph, &exploration)
+        addIngredientToExploration(firstRecipe.InputB, graph, &exploration)
+        
+        // Process additional recipes (branching)
+        for i := 1; i < len(recipes) && i < 10; i++ {
+            select {
+            case <-done:
+                return
+            case <-ctx.Done():
+                return
+            default:
+                // Continue
+            }
+            
+            // Clone for this branch
+            branch := cloneExploration(exploration)
+            recipe := recipes[i]
+            
+            // Update branch
+            branch.Path[curName] = RecipeStep{
+                Combo: IngredientCombo{
+                    A: graph.IDToName[recipe.InputA],
+                    B: graph.IDToName[recipe.InputB],
+                },
+            }
+            
+            // Process ingredients
+            delete(branch.IncompletePath, curName)
+            addIngredientToExploration(recipe.InputA, graph, &branch)
+            addIngredientToExploration(recipe.InputB, graph, &branch)
+            
+            // Queue branch
+            select {
+            case explorationsQueue <- branch:
+                // Successfully queued
+            case <-done:
+                return
+            case <-ctx.Done():
+                return
+            default:
+                // Queue full, drop this branch
+            }
+        }
+        
+        // Check if path is complete
+        if len(exploration.IncompletePath) == 0 {
+            // Complete path - send result, but only if channels aren't closed
+            select {
+            case resultsChannel <- struct {
+                path        map[string]RecipeStep
+                searchSteps []SearchStep
+                nodeCount   int
+            }{
+                path:        exploration.Path,
+                searchSteps: exploration.SearchSteps,
+                nodeCount:   exploration.NodeCount,
+            }:
+                // Successfully sent
+            case <-done:
+                return
+            case <-ctx.Done():
+                return
+            }
+            return
+        }
+    }
+}
+
+// Helper function to add ingredient to exploration
+func addIngredientToExploration(ingredientID int, graph IndexedGraph, exp *PathExploration) {
+    ingredientName := graph.IDToName[ingredientID]
+    if !isBaseElement(ingredientName) {
+        exp.IncompletePath[ingredientName] = true
+        exp.Queue.PushBack(ingredientID)
+    }
+}
+
+// Helper function to process individual recipes
+func processRecipe(
+	exploration PathExploration,
+	recipe struct{ InputA, InputB int },
+	graph IndexedGraph,
+	curName string,
+) PathExploration {
+	// Update path
+	exploration.Path[curName] = RecipeStep{
+		Combo: IngredientCombo{
+			A: graph.IDToName[recipe.InputA],
+			B: graph.IDToName[recipe.InputB],
+		},
+	}
+
+	// Update incomplete path
+	delete(exploration.IncompletePath, curName)
+	ingredientA := graph.IDToName[recipe.InputA]
+	ingredientB := graph.IDToName[recipe.InputB]
+
+	if !isBaseElement(ingredientA) {
+		exploration.IncompletePath[ingredientA] = true
+		exploration.Queue.PushBack(recipe.InputA)
+	}
+
+	if !isBaseElement(ingredientB) {
+		exploration.IncompletePath[ingredientB] = true
+		exploration.Queue.PushBack(recipe.InputB)
+	}
+
+	return exploration
+}
+
+// Helper to create initial exploration state
+func createInitialExploration(targetName string, targetID int) PathExploration {
+	exploration := PathExploration{
+		Path:           make(map[string]RecipeStep),
+		IncompletePath: map[string]bool{targetName: true},
+		Queue:          list.New(),
+		SearchSteps:    []SearchStep{},
+		NodeCount:      0,
+	}
+	
+	// Add target to queue
+	exploration.Queue.PushBack(targetID)
+	
+	// Initialize first search step
+	exploration.SearchSteps = append(exploration.SearchSteps, SearchStep{
+		CurrentID:       -1,
+		CurrentName:     "",
+		QueueIDs:        []int{targetID},
+		QueueNames:      []string{targetName},
+		SeenIDs:         []int{},
+		SeenNames:       []string{},
+		DiscoveredEdges: make(map[int]struct{ ParentID, PartnerID int }),
+		DiscoveredNames: make(map[string]struct{ A, B string }),
+		StepNumber:      0,
+		FoundTarget:     false,
+	})
+	
+	return exploration
 }

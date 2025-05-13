@@ -1,530 +1,262 @@
-package recipeFinder
+package search
 
 import (
-	"container/list"
-	"sort"
-	"strings"
+	"fmt"
+	"runtime"
 	"sync"
+	"time"
+
+	"bfs/graph"
 )
 
-type PathExploration struct {
-	Path           map[string]RecipeStep  // Current path from target toward base
-	IncompletePath map[string]bool        // Elements in path that aren't base elements yet
-	Queue          *list.List             // BFS queue for this path
-	SearchSteps    []SearchStep           // Visualization steps for this path
-	NodeCount      int                    // Nodes visited in this path
+// Menyimpan tiap kombinasi resep
+type levelTask struct {
+	Product string
+	Recipe  []string
+	Left	*graph.TreeNode
+	Right	*graph.TreeNode
 }
 
-// Multi-recipe BFS that works in reverse (target → base) with multithreading
-func ReversedMultiPathBFSParallel(targetName string, graph IndexedGraph, maxPaths int, numWorkers int) ([]ProductToIngredients, []SearchStep, int) {
-	targetID := graph.NameToID[targetName]
+func MultiBFS(target string, g graph.Graph, maxRecipes int, tierMap map[string]int) (graph.MultiTreeResult, error) {
+	start := time.Now()
 
-	// Track complete paths (each is a separate recipe tree)
-	var completePaths []ProductToIngredients
-	pathHashes := make(map[string]bool)
-	
-	// Use mutex to protect shared resources
-	var pathsMutex sync.Mutex
-	var totalNodesMutex sync.Mutex
-	var explorationsMutex sync.Mutex
+	startingElements := []string{"Air", "Fire", "Water", "Earth"}
 
-	// Track all search steps for visualization
-	allSearchSteps := []SearchStep{}
-	totalNodes := 0
+	existing := map[string][]*graph.TreeNode{} // Menyimpan node yang sudah dibuat
+	var visitedCombo sync.Map // Nanti digunain untuk cek duplikat
+	visitedElem := map[string]bool{}
 
-	// We'll need a reverse graph (product → ingredient combinations)
-	// This gives us all ways to create an element
-	reverseGraph := buildReverseGraph(graph)
-
-	// Start with initial exploration from target
-	initialExploration := PathExploration{
-		Path:           make(map[string]RecipeStep),
-		IncompletePath: map[string]bool{targetName: true},
-		Queue:          list.New(),
-		SearchSteps:    []SearchStep{},
-		NodeCount:      0,
+	// Inisialisasi node dasar
+	for _, e := range startingElements {
+		node := &graph.TreeNode{Name: e, Children: []*graph.TreeNode{}}
+		existing[e] = []*graph.TreeNode{node}
+		visitedElem[e] = true
 	}
 
-	// Add target to queue
-	initialExploration.Queue.PushBack(targetID)
+	// kalau target elemen dasar, lgsg return aja
+	if contains(startingElements, target) {
+		n := &graph.TreeNode{
+			Name: target, 
+			NodeDiscovered: 0, 
+			Children: []*graph.TreeNode{},
+		}
+		return graph.MultiTreeResult{
+			Trees:        []*graph.TreeNode{n},
+			Algorithm:    "Multi_BFS",
+			DurationMS:   float64(time.Since(start).Microseconds()) / 1000.0,
+			VisitedNodes: 1,
+		}, nil
+	}
 
-	// Initialize search steps
-	initialExploration.SearchSteps = append(initialExploration.SearchSteps, SearchStep{
-		CurrentID:       -1,
-		CurrentName:     "",
-		QueueIDs:        []int{targetID},
-		QueueNames:      []string{targetName},
-		SeenIDs:         []int{},
-		SeenNames:       []string{},
-		DiscoveredEdges: make(map[int]struct{ ParentID, PartnerID int }),
-		DiscoveredNames: make(map[string]struct{ A, B string }),
-		StepNumber:      0,
-		FoundTarget:     false,
-	})
+	foundRecipes := []*graph.TreeNode{}
+	tier := 0
+	numWorkers := runtime.NumCPU() * 2
+	targetTier := tierMap[target]
+	maxCombinationPerPair := 100 // Batas kombinasi per pasang node
+	var recipeMutex sync.Mutex
 
-	// All active path explorations
-	activeExplorations := []PathExploration{initialExploration}
+	queue := make([]levelTask, 0)
 
-	// Channel for workers to get explorations
-	explorationsQueue := make(chan PathExploration, maxPaths*3)
-	
-	// Channel for completed paths
-	completedPaths := make(chan struct {
-		path        map[string]RecipeStep
-		searchSteps []SearchStep
-		nodeCount   int
-	}, maxPaths)
-	
-	// Channel to signal workers to stop
-	done := make(chan bool)
-	
-	// Add initial exploration to the queue
-	explorationsQueue <- initialExploration
-
-	// Launch worker goroutines
-	var wg sync.WaitGroup
-	wg.Add(numWorkers)
-	
-	// Track if we have enough paths
-	enoughPaths := false
-	var enoughPathsMutex sync.Mutex
-
-	// Worker function
-	worker := func(workerId int) {
-		defer wg.Done()
-		
-		for {
-			// Check if we should stop
-			select {
-			case <-done:
-				return
-			default:
-				// Continue processing
+	// Inisialsiasi kombinasi dari awal
+	for product, recipes := range g {
+		for _, recipe := range recipes {
+			if len(recipe) != 2 {
+				continue
 			}
-			
-			// Get next exploration or wait if none available
-			var currentExploration PathExploration
-			select {
-			case currentExploration = <-explorationsQueue:
-				// Got an exploration to process
-			case <-done:
-				return
+			if _, ok1 := existing[recipe[0]]; !ok1 {
+				continue
 			}
-
-			// Process the exploration until it's complete or needs to branch
-			processExploration(
-				currentExploration, 
-				reverseGraph, 
-				graph, 
-				&completedPaths, 
-				&explorationsQueue, 
-				&enoughPaths,
-				&enoughPathsMutex,
-				maxPaths,
-			)
+			if _, ok2 := existing[recipe[1]]; !ok2 {
+				continue
+			}
+			for _, l := range existing[recipe[0]] {
+				for _, r := range existing[recipe[1]] {
+					queue = append(queue, levelTask{
+						Product: product,
+						Recipe:  recipe,
+						Left:    l,
+						Right:   r,
+					})
+				}
+			}
 		}
 	}
 
-	// Start workers
-	for i := 0; i < numWorkers; i++ {
-		go worker(i)
-	}
+	for len(queue) > 0 && (maxRecipes <= 0 || len(foundRecipes) < maxRecipes) {
+		fmt.Printf("\nTier %d: Memproses %d kombinasi\n", tier, len(queue)) // debugging
 
-	// Collector goroutine to gather results
-	go func() {
-		for completedPath := range completedPaths {
-			pathsMutex.Lock()
-			
-			// Check if this path hash is unique
-			pathHash := createPathHash(completedPath.path)
-			isUnique := !pathHashes[pathHash]
-			
-			if isUnique {
-				pathHashes[pathHash] = true
-				completePaths = append(completePaths, completedPath.path)
-				allSearchSteps = append(allSearchSteps, completedPath.searchSteps...)
-				
-				// Signal to stop if we have enough paths
-				if len(completePaths) >= maxPaths {
-					enoughPathsMutex.Lock()
-					enoughPaths = true
-					enoughPathsMutex.Unlock()
+		tasks := make(chan levelTask, len(queue))
+		results := make(chan *graph.TreeNode, len(queue))
+		var wg sync.WaitGroup
+
+		// Worker BFS
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for task := range tasks {
+					product := task.Product
+					recipe := task.Recipe
+					productTier := tierMap[product]
+
+					// Elemen pembentuk harus lebih rendah tiernya dari elemen yang dibetuk
+					if tierMap[recipe[0]] >= productTier || tierMap[recipe[1]] >= productTier {
+						continue
+					}
 					
-					// Signal all workers to stop
-					close(done)
-					close(completedPaths)
-				}
-			}
-			
-			// Update total nodes
-			totalNodesMutex.Lock()
-			totalNodes += completedPath.nodeCount
-			totalNodesMutex.Unlock()
-			
-			pathsMutex.Unlock()
-		}
-	}()
+					// Key dibuat untuk mendeteksi kombinasi duplikat
+					key := fmt.Sprintf("%s+%s>%s#%p|%p", recipe[0], recipe[1], product, task.Left, task.Right)
+					if _, exists := visitedCombo.LoadOrStore(key, true); exists {
+						continue
+					}
 
-	// Wait for all workers to finish
-	wg.Wait()
-	
-	// Clean up if not already closed
-	select {
-	case <-done:
-		// Already closed
-	default:
-		close(done)
-		close(completedPaths)
-	}
+					n := &graph.TreeNode{Name: product, Children: []*graph.TreeNode{task.Left, task.Right}}
+					results <- n
+				}
+			}()
+		}
 
-	return completePaths, allSearchSteps, totalNodes
-}
+		for _, t := range queue {
+			tasks <- t
+		}
+		close(tasks)
+		wg.Wait()
+		close(results)
 
-// Helper function to process a single exploration
-func processExploration(
-	currentExploration PathExploration,
-	reverseGraph map[int][]struct{ InputA, InputB int },
-	graph IndexedGraph,
-	completedPaths *chan struct{path map[string]RecipeStep; searchSteps []SearchStep; nodeCount int},
-	explorationsQueue *chan PathExploration,
-	enoughPaths *bool,
-	enoughPathsMutex *sync.Mutex,
-	maxPaths int,
-) {
-	localSteps := make([]SearchStep, 0, 100)
-	localNodeCount := 0
-	
-	// Continue BFS on this path until it's complete or we need to branch
-	for currentExploration.Queue.Len() > 0 {
-		// Check if we have enough paths globally
-		enoughPathsMutex.Lock()
-		if *enoughPaths {
-			enoughPathsMutex.Unlock()
-			return
-		}
-		enoughPathsMutex.Unlock()
-		
-		// Get next element to explore
-		front := currentExploration.Queue.Front()
-		curID := currentExploration.Queue.Remove(front).(int)
-		curName := graph.IDToName[curID]
-		
-		currentExploration.NodeCount++
-		localNodeCount++
-		
-		// Record search step
-		step := SearchStep{
-			CurrentID:   curID,
-			CurrentName: curName,
-			QueueIDs:    queueToSlice(currentExploration.Queue),
-			QueueNames:  queueToNameSlice(currentExploration.Queue, graph),
-			// Other visualization fields...
-			StepNumber:  currentExploration.NodeCount,
-			FoundTarget: false,  // Not relevant in reverse search
-		}
-		currentExploration.SearchSteps = append(currentExploration.SearchSteps, step)
-		localSteps = append(localSteps, step)
-		
-		// Skip if this is a base element
-		if isBaseElement(curName) {
-			// Remove from incomplete path
-			delete(currentExploration.IncompletePath, curName)
-			continue
-		}
-		
-		// Get all ways to create this element
-		recipes := reverseGraph[curID]
-		
-		// Check if we need to branch the path
-		if len(recipes) > 1 {
-			// First recipe continues in this exploration
-			firstRecipe := recipes[0]
-			
-			// Add recipe to current path
-			currentExploration.Path[curName] = RecipeStep{
-				Combo: IngredientCombo{
-					A: graph.IDToName[firstRecipe.InputA],
-					B: graph.IDToName[firstRecipe.InputB],
-				},
-			}
-			
-			// Add ingredient elements to incomplete path
-			ingredientA := graph.IDToName[firstRecipe.InputA]
-			ingredientB := graph.IDToName[firstRecipe.InputB]
-			
-			// Remove current from incomplete, add ingredients if not base
-			delete(currentExploration.IncompletePath, curName)
-			if !isBaseElement(ingredientA) {
-				currentExploration.IncompletePath[ingredientA] = true
-				currentExploration.Queue.PushBack(firstRecipe.InputA)
-			}
-			
-			if !isBaseElement(ingredientB) {
-				currentExploration.IncompletePath[ingredientB] = true
-				currentExploration.Queue.PushBack(firstRecipe.InputB)
-			}
-			
-			// Create new explorations for remaining recipes (branch paths)
-			for i := 1; i < len(recipes); i++ {
-				recipe := recipes[i]
-				
-				// Clone the current exploration
-				newExploration := cloneExploration(currentExploration)
-				
-				// Add this recipe variant
-				newExploration.Path[curName] = RecipeStep{
-					Combo: IngredientCombo{
-						A: graph.IDToName[recipe.InputA],
-						B: graph.IDToName[recipe.InputB],
-					},
+		nextQueue := []levelTask{}
+		newNodes := map[string][]*graph.TreeNode{}
+
+		for res := range results {
+			newNodes[res.Name] = append(newNodes[res.Name], res)
+			visitedElem[res.Name] = true
+			if res.Name == target {
+				clone := deepCopyTree(res)
+				recipeMutex.Lock()
+				if maxRecipes <= 0 || len(foundRecipes) < maxRecipes {
+					foundRecipes = append(foundRecipes, clone)
 				}
-				
-				// Add ingredient elements to new path's incomplete list
-				newIngredientA := graph.IDToName[recipe.InputA]
-				newIngredientB := graph.IDToName[recipe.InputB]
-				
-				// Remove current, add ingredients if not base
-				delete(newExploration.IncompletePath, curName)
-				if !isBaseElement(newIngredientA) {
-					newExploration.IncompletePath[newIngredientA] = true
-					newExploration.Queue.PushBack(recipe.InputA)
-				}
-				
-				if !isBaseElement(newIngredientB) {
-					newExploration.IncompletePath[newIngredientB] = true
-					newExploration.Queue.PushBack(recipe.InputB)
-				}
-				
-				// Add to explorations queue for workers to pick up
-				select {
-				case *explorationsQueue <- newExploration:
-					// Successfully queued
-				default:
-					// Queue is full, process this branch ourselves
-					processExploration(
-						newExploration, 
-						reverseGraph, 
-						graph, 
-						completedPaths, 
-						explorationsQueue, 
-						enoughPaths,
-						enoughPathsMutex,
-						maxPaths,
-					)
-				}
-			}
-		} else if len(recipes) == 1 {
-			// Just one recipe, continue current path
-			recipe := recipes[0]
-			
-			// Add recipe to current path
-			currentExploration.Path[curName] = RecipeStep{
-				Combo: IngredientCombo{
-					A: graph.IDToName[recipe.InputA],
-					B: graph.IDToName[recipe.InputB],
-				},
-			}
-			
-			// Add ingredient elements to incomplete path
-			ingredientA := graph.IDToName[recipe.InputA]
-			ingredientB := graph.IDToName[recipe.InputB]
-			
-			// Remove current, add ingredients if not base
-			delete(currentExploration.IncompletePath, curName)
-			if !isBaseElement(ingredientA) {
-				currentExploration.IncompletePath[ingredientA] = true
-				currentExploration.Queue.PushBack(recipe.InputA)
-			}
-			
-			if !isBaseElement(ingredientB) {
-				currentExploration.IncompletePath[ingredientB] = true
-				currentExploration.Queue.PushBack(recipe.InputB)
+				recipeMutex.Unlock()
 			}
 		}
-		
-		// Check if this path is now complete (all elements resolved to base)
-		if len(currentExploration.IncompletePath) == 0 {
-			// Path is complete - submit to collector
-			*completedPaths <- struct {
-				path        map[string]RecipeStep
-				searchSteps []SearchStep
-				nodeCount   int
-			}{
-				path:        currentExploration.Path,
-				searchSteps: currentExploration.SearchSteps,
-				nodeCount:   currentExploration.NodeCount,
+
+		// Menambahkan node yang ditemukan ke existing
+		for product, list := range newNodes {
+			existing[product] = append(existing[product], list...)
+		}
+
+		// Menyiapkan kombinasi untuk tier berikutnya
+		for product, recipes := range g {
+			if tierMap[product] != tier+1 {
+				continue
 			}
-			
-			// Don't continue with this exploration
+			for _, recipe := range recipes {
+				if len(recipe) != 2 {
+					continue
+				}
+				lefts, ok1 := existing[recipe[0]]
+				rights, ok2 := existing[recipe[1]]
+				if !ok1 || !ok2 {
+					continue
+				}
+				count := 0
+				for _, l := range lefts {
+					for _, r := range rights {
+						if count >= maxCombinationPerPair {
+							break
+						}
+						nextQueue = append(nextQueue, levelTask{Product: product, Recipe: recipe, Left: l, Right: r})
+						count++
+					}
+					if count >= maxCombinationPerPair {
+						break
+					}
+				}
+			}
+		}
+		queue = nextQueue
+		tier++
+
+		// Cek tier biar ga semua tier di kombinasiin (tewas goroutinenya)
+		if tier > targetTier {
 			break
 		}
 	}
-}
 
-// Helper function to build reverse graph (product -> ingredient combinations)
-func buildReverseGraph(graph IndexedGraph) map[int][]struct{ InputA, InputB int } {
-	reverse := make(map[int][]struct{ InputA, InputB int })
-	
-	// Iterate through all elements
-	for elementID, neighbors := range graph.Edges {
-		for _, neighbor := range neighbors {
-			partnerID := neighbor.PartnerID
-			productID := neighbor.ProductID
-			
-			// Add recipe to reverse graph
-			reverse[productID] = append(reverse[productID], struct{ InputA, InputB int }{
-				InputA: elementID,
-				InputB: partnerID,
-			})
+	// Ambil rute pertama sebagai primary rute sebagai live update
+	for i, t := range foundRecipes {
+		if i == 0 {
+			idx := 0
+			setDiscoveredIndexMultiple(t, &idx)
+		} else {
+			markTreeAsAlternative(t)
 		}
 	}
-	
-	return reverse
+
+	// Cek apakah resep sudah cukup atau belum
+	if maxRecipes > 0 && len(foundRecipes) > maxRecipes {
+		foundRecipes = foundRecipes[:maxRecipes]
+	}
+
+	return graph.MultiTreeResult{
+		Trees:        foundRecipes,
+		Algorithm:    "Multi_BFS",
+		DurationMS:   float64(time.Since(start).Microseconds()) / 1000.0,
+		VisitedNodes: len(visitedElem),
+	}, nil
 }
 
-// Clone a path exploration
-func cloneExploration(original PathExploration) PathExploration {
-	clone := PathExploration{
-		Path:           make(map[string]RecipeStep),
-		IncompletePath: make(map[string]bool),
-		Queue:          list.New(),
-		SearchSteps:    make([]SearchStep, len(original.SearchSteps)),
-		NodeCount:      original.NodeCount,
+// Membuat salinan dari pohon node
+func deepCopyTree(node *graph.TreeNode) *graph.TreeNode {
+	if node == nil {
+		return nil
 	}
-	
-	// Copy path
-	for k, v := range original.Path {
-		clone.Path[k] = v
+
+	copy := &graph.TreeNode{
+		Name: node.Name,
+		NodeDiscovered: node.NodeDiscovered,
+		Children: []*graph.TreeNode{},
 	}
-	
-	// Copy incomplete path
-	for k := range original.IncompletePath {
-		clone.IncompletePath[k] = true
+	for _, child := range node.Children {
+		copy.Children = append(copy.Children, deepCopyTree(child))
 	}
-	
-	// Copy queue
-	for e := original.Queue.Front(); e != nil; e = e.Next() {
-		clone.Queue.PushBack(e.Value)
-	}
-	
-	// Copy search steps
-	copy(clone.SearchSteps, original.SearchSteps)
-	
-	return clone
+	return copy
 }
 
-// Helper function to convert queue to slice of IDs
-func queueToSlice(queue *list.List) []int {
-	result := make([]int, 0, queue.Len())
-	for e := queue.Front(); e != nil; e = e.Next() {
-		result = append(result, e.Value.(int))
+func setDiscoveredIndexMultiple(node *graph.TreeNode, counter *int) {
+if node == nil {
+		return
 	}
-	return result
+
+	queue := []*graph.TreeNode{node}
+
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+
+		curr.NodeDiscovered = *counter
+		*counter++
+
+		queue = append(queue, curr.Children...)
+	}
 }
 
-// Helper function to convert queue to slice of names
-func queueToNameSlice(queue *list.List, graph IndexedGraph) []string {
-	result := make([]string, 0, queue.Len())
-	for e := queue.Front(); e != nil; e = e.Next() {
-		result = append(result, graph.IDToName[e.Value.(int)])
+// yang alternative nilai node discoverednya adalah -1
+func markTreeAsAlternative(node *graph.TreeNode) {
+	if node == nil {
+		return
 	}
-	return result
+	for _, child := range node.Children {
+		markTreeAsAlternative(child)
+	}
+	node.NodeDiscovered = -1
 }
 
-// Create a unique hash for a path to detect duplicates
-func createPathHash(path map[string]RecipeStep) string {
-	// Sort keys for consistent hash
-	keys := make([]string, 0, len(path))
-	for k := range path {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	
-	// Build hash string
-	var hashBuilder strings.Builder
-	for _, k := range keys {
-		hashBuilder.WriteString(k)
-		hashBuilder.WriteString(":")
-		hashBuilder.WriteString(path[k].Combo.A)
-		hashBuilder.WriteString("+")
-		hashBuilder.WriteString(path[k].Combo.B)
-		hashBuilder.WriteString(";")
-	}
-	
-	return hashBuilder.String()
-}
-
-// Caller for the multithreaded BFS
-func FindMultipleRecipePathsParallel(target string, maxPaths int, numWorkers int) ReversedBFSResponse {
-	resp := ReversedBFSResponse{}
-	
-	// Determine number of workers if not specified
-	if numWorkers <= 0 {
-		numWorkers = 4 // Default to 4 workers
-	}
-	
-	// Run the multi-path reversed BFS with parallelism
-	pathsList, searchSteps, nodesVisited := ReversedMultiPathBFSParallel(target, GlobalIndexedGraph, maxPaths, numWorkers)
-	
-	// Fill response
-	resp.Target = target
-	resp.NodesVisited = nodesVisited
-	resp.SearchSteps = searchSteps
-	resp.PathsCount = len(pathsList)
-	
-	// Convert each path to a recipe tree
-	resp.RecipeTrees = make([]RecipeTree, 0, len(pathsList))
-	for _, path := range pathsList {
-		// Convert ProductToIngredients path to a tree structure
-		tree := BuildTreeFromPath(target, path)
-		resp.RecipeTrees = append(resp.RecipeTrees, tree)
-	}
-	
-	return resp
-}
-
-// Response structure for reversed multi-path BFS
-type ReversedBFSResponse struct {
-	Target       string       `json:"target"`
-	NodesVisited int          `json:"nodesVisited"`
-	PathsCount   int          `json:"pathsCount"`
-	RecipeTrees  []RecipeTree `json:"recipeTrees"`
-	SearchSteps  []SearchStep `json:"searchSteps"`
-}
-
-// Build a tree from a path returned by the reversed BFS
-func BuildTreeFromPath(target string, path ProductToIngredients) RecipeTree {
-	tree := RecipeTree{
-		Element: target,
-	}
-	
-	// Recursively build the tree
-	buildTreeRecursive(&tree, path)
-	
-	return tree
-}
-
-// Recursively build a tree from a path
-func buildTreeRecursive(node *RecipeTree, path ProductToIngredients) {
-	// Check if this element has ingredients in the path
-	if recipeStep, exists := path[node.Element]; exists {
-		// Create child nodes for ingredients
-		ingredientA := recipeStep.Combo.A
-		ingredientB := recipeStep.Combo.B
-		
-		// Add children
-		node.Children = []RecipeTree{
-			{Element: ingredientA},
-			{Element: ingredientB},
-		}
-		
-		// Continue recursively building the tree for non-base elements
-		if !isBaseElement(ingredientA) {
-			buildTreeRecursive(&node.Children[0], path)
-		}
-		
-		if !isBaseElement(ingredientB) {
-			buildTreeRecursive(&node.Children[1], path)
+// Contains untuk memeriksa apakah elemen ada di dalam list rating atau tidak
+func contains(list []string, val string) bool {
+	for _, v := range list {
+		if v == val {
+			return true
 		}
 	}
+	return false
 }
